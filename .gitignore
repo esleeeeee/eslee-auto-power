@@ -1,0 +1,22 @@
+.dotnet/
+.tools/
+**/bin/
+**/obj/
+artifacts/
+tmp/
+TestResults/
+*.user
+*.suo
+*.db
+*.db-shm
+*.db-wal
+*.log
+*.dmp
+*.dump
+
+# Local hardware investigation notes contain this PC's firmware details.
+docs/current-machine-verification.md
+docs/s5-rtc-investigation.md
+
+# Unused original artwork; the optimized app asset is versioned under src/.
+/eslee-Auto-Power.png

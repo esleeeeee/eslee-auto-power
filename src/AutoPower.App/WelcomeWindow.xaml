@@ -1,0 +1,23 @@
+<Window x:Class="AutoPower.App.WelcomeWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="eslee Auto Power 시작" Width="560" Height="330" ResizeMode="NoResize" WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource WindowBrush}" Foreground="{StaticResource TextBrush}">
+    <Grid Margin="28">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel>
+            <TextBlock Text="eslee Auto Power" FontSize="25" FontWeight="SemiBold"/>
+            <TextBlock Text="Windows 11 전원 자동화를 시작합니다" Foreground="{StaticResource AccentBrush}" Margin="0,6,0,0"/>
+        </StackPanel>
+        <StackPanel Grid.Row="1" Margin="0,22,0,0">
+            <TextBlock Text="이 앱은 하나의 자동 시작 예약에서 자동·S3 절전·S4 최대 절전 방식을 선택하고, 예약 시각에 Windows 사용자 세션을 깨운 뒤 Resume 준비 확인 후 후속 프로그램을 실행합니다. 필요한 예약에는 앱 관리형 1회 자동 로그인을 선택할 수 있습니다. 외부 서버로 정보를 전송하지 않습니다."
+                       TextWrapping="Wrap" FontSize="14"/>
+            <TextBlock Text="메인 화면의 S3 절전 및 S4 최대 절전 버튼으로 원하는 전원 상태에 즉시 진입할 수 있습니다. 자동 시작 예약이 있으면 같은 전원 방식으로 준비하세요."
+                       TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" Margin="0,16,0,0"/>
+        </StackPanel>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="나중에" Click="Later_Click" Margin="0,0,8,0"/>
+            <Button Content="진단 결과 보기" Style="{StaticResource AccentButton}" Click="Start_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -1,0 +1,133 @@
+# eslee Auto Power
+
+> A Windows 11 desktop utility that wakes a PC from S3 sleep or S4 hibernation at a scheduled time, waits for the user session to be ready, and launches follow-up programs.
+
+[Download the latest English installer](https://github.com/esleeeeee/eslee-auto-power/releases/latest) · [한국어 설치 파일](https://github.com/esleeeeee/eslee-auto-power/releases/latest)
+
+Documentation: [한국어](README.md) · **English**
+
+## What does it solve?
+
+A Windows `WakeToRun` task alone does not guide the user into the correct power state or handle the lock screen and follow-up programs. eslee Auto Power combines that flow into one schedule.
+
+- Choose a wake time and Automatic, S3, or S4 mode.
+- Put the PC into the matching power state from the main screen.
+- At the scheduled time, Windows wakes the session and the app waits for the desktop-ready point `T0`.
+- Follow-up programs run at `T0 + N minutes`.
+- Optional one-time sign-in handling skips the lock screen for the next resume and restores the original setting afterward.
+
+## Supported power states
+
+| Power state | Scheduled wake | Notes |
+|---|---:|---|
+| S3 sleep | Supported | Requires S3 support from Windows and the PC firmware. |
+| S4 hibernation | Supported | Requires Windows hibernation to be enabled. |
+| S5 full shutdown | Not supported | A BIOS RTC alarm and safe Windows app control are different paths. |
+
+App-controlled startup after a full shutdown is intentionally not presented or emulated. For scheduled wake, leave the PC in **S3 sleep or S4 hibernation**.
+
+## Quick start
+
+1. Download `eslee-auto-power-v1.0.0-en-setup.exe` from [Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest).
+2. Open Compatibility and run the two-minute real test for an available S3/S4 path.
+3. In Settings, save and validate the Windows account password. Windows Hello PINs are not supported.
+4. Create a schedule and choose the date, time, wake mode, and any follow-up programs.
+5. Use `Enter S3 sleep now` or `Enter S4 hibernation now` with the same power state as the schedule.
+
+Save unsaved work before entering sleep or hibernation.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["Save schedule"] --> B["Register Windows WakeToRun task"]
+    B --> C["Enter S3 sleep or S4 hibernation"]
+    C --> D["Windows wakes at the scheduled time"]
+    D --> E["Confirm user session and Explorer are ready"]
+    E --> F["Set T0"]
+    F --> G["Launch follow-up programs at T0 + N"]
+```
+
+The application separates responsibilities into three processes:
+
+- `AutoPower.App.exe`: standard-user WPF UI, tray, schedules, history, and settings
+- `AutoPower.Helper.exe`: user-approved elevated power transitions and app-owned task registration
+- `AutoPower.Agent.exe`: resume readiness and follow-up program execution in the user session
+
+Task Scheduler changes are limited to the app-owned `\eslee\AutoPower\` folder. Tasks owned by other software are not modified.
+
+## App-managed one-time sign-in
+
+Windows may require a password after S3/S4 resume. When a schedule enables app-managed one-time sign-in, the app temporarily disables the Windows `require sign-in on wake` value for the next resume only.
+
+- The Windows account password is stored in Credential Manager and an app-specific LSA protected secret.
+- A Microsoft account email is normalized automatically.
+- Windows Hello PINs are never stored or used.
+- Original AC/DC sign-in requirement values are restored and verified after resume.
+- If a process is interrupted, journal-based recovery retries during the next wake task, app start, sign-in, or uninstall.
+
+If the PC is woken manually before the schedule, that resume may also open without a lock screen. Use this option only on a physically secure PC.
+
+## Follow-up programs and elevation
+
+Programs run relative to the actual desktop-ready time `T0`, not the planned wake time. Multiple programs may use the same delay, and one failure does not stop the rest.
+
+For a program that requires elevation, open Advanced options and select `Run as administrator`. The app pre-registers a highest-privilege task while saving the schedule, so the resumed desktop does not wait for a UAC prompt. Use this only for trusted programs.
+
+## Compatibility and limitations
+
+- Operating system: Windows 11 x64
+- S3 requires firmware support for that state.
+- S4 requires both firmware support and Windows hibernation.
+- The app never enables hibernation without consent. When needed, it explains how to run `powercfg /hibernate on` in an elevated terminal.
+- Actual results may depend on UEFI power policy, Windows wake-timer settings, and vendor firmware.
+- Release installers are currently unsigned, so Windows SmartScreen may display a warning.
+
+Compatibility is not marked as confirmed from capability detection alone. Only a successful real S3/S4 wake test records `Confirmed supported`.
+
+## Local data and privacy
+
+Schedules, execution history, recovery journals, and diagnostics are stored under `%ProgramData%\eslee\AutoPower`. Passwords are never stored in the plain-text database or logs; Windows-protected storage is used. The app contains no analytics, advertising, or external telemetry transport.
+
+Diagnostic logs may include local details needed for troubleshooting, such as task results, error codes, and executable paths. Review them before attaching them to a public issue. See [Privacy](PRIVACY.md) for details.
+
+## Building from source
+
+Requirements:
+
+- Windows 11 x64
+- .NET SDK 10.0.301
+- Inno Setup 6 for installers
+
+```powershell
+dotnet restore .\AutoPower.sln
+dotnet build .\AutoPower.sln -c Release
+dotnet test .\tests\AutoPower.Tests\AutoPower.Tests.csproj -c Release
+.\scripts\Build-Release.ps1 -Version 1.0.0
+```
+
+Use `-p:AppLanguage=ko` or `-p:AppLanguage=en` for a single-language build. The release script produces self-contained x64 Korean and English installers plus SHA-256 files under `artifacts\installer`.
+
+## Repository layout
+
+```text
+src/AutoPower.App       WPF UI and tray
+src/AutoPower.Core      Models, policies, validation, localization
+src/AutoPower.Data      SQLite storage
+src/AutoPower.Windows   Task Scheduler, power, credentials, recovery
+src/AutoPower.Helper    Elevated command runner
+src/AutoPower.Agent     Resume and follow-up program handling
+tests/AutoPower.Tests   Automated tests
+installer               Inno Setup definition
+```
+
+## More information
+
+- [Changelog](CHANGELOG.md)
+- [Security policy](SECURITY.md)
+- [Privacy](PRIVACY.md)
+- [GitHub Issues](https://github.com/esleeeeee/eslee-auto-power/issues)
+
+## License
+
+[MIT License](LICENSE)

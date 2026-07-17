@@ -1,0 +1,97 @@
+<Window x:Class="AutoPower.App.ScheduleEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="예약" Width="720" Height="700" MinHeight="620" WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource WindowBrush}" Foreground="{StaticResource TextBrush}">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock x:Name="Heading" Text="새 예약" FontSize="24" FontWeight="SemiBold"/>
+            <TextBlock Text="자동 시작 예약 또는 지정 시각의 전원 동작을 설정합니다."
+                       Foreground="{StaticResource MutedBrush}" Margin="0,5,0,18"/>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="160"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="날짜" Margin="0,0,0,6"/>
+                        <DatePicker x:Name="DateInput"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="시간 (HH:mm)" Margin="0,0,0,6"/>
+                        <TextBox x:Name="TimeInput"/>
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="동작" Margin="0,16,0,6"/>
+                <ComboBox x:Name="ActionInput"
+                          SelectionChanged="ActionInput_SelectionChanged"
+                          DisplayMemberPath="Text"
+                          SelectedValuePath="Value"/>
+
+                <Border x:Name="WakeOptions" Background="{StaticResource PanelBrush}"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                        CornerRadius="9" Padding="18" Margin="0,18,0,0">
+                    <StackPanel>
+                        <TextBlock Text="자동 시작 방식" FontSize="16" FontWeight="SemiBold"/>
+                        <TextBlock Text="자동 선택은 실제 테스트에서 확인된 방식을 우선합니다. 실패로 기록된 방식은 제외하며, 나머지가 모두 미검증이면 사용 가능한 S4 최대 절전을 먼저 선택하고 S3 절전으로 대체합니다."
+                                   Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,7,0,10"/>
+                        <ComboBox x:Name="WakeModeInput"
+                                  SelectionChanged="WakeModeInput_SelectionChanged"
+                                  DisplayMemberPath="Text"
+                                  SelectedValuePath="Value"/>
+                        <Border Background="#3A3020" BorderBrush="#7A6230" BorderThickness="1"
+                                CornerRadius="7" Padding="11" Margin="0,14,0,0">
+                            <TextBlock x:Name="WakeModeNotice" Foreground="#FFE1A0" TextWrapping="Wrap"/>
+                        </Border>
+
+                        <CheckBox x:Name="OneTimeAutoLogonCheck"
+                                  Content="앱 관리형 1회 자동 로그인"
+                                  Margin="0,14,0,5"/>
+                        <TextBlock Text="선택하면 설정에서 등록·검증한 Windows 계정을 확인한 뒤, 다음 S3/S4 복귀 1회에 한해 잠금 화면을 건너뜁니다. 복귀 즉시 원래의 '절전 모드 해제 시 로그인 요구' 설정으로 되돌립니다. PIN은 저장하지 않으며 Windows 암호는 보호 저장소에만 보관됩니다. 예약 전에 PC를 일찍 깨우는 경우에도 잠금 없이 열릴 수 있습니다."
+                                   Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
+                        <DockPanel Margin="0,18,0,10">
+                            <TextBlock Text="복귀 후 실행" FontWeight="SemiBold" DockPanel.Dock="Left"/>
+                            <Button x:Name="AddProgramButton" Content="+ 추가" Click="AddProgram_Click" DockPanel.Dock="Right" Padding="11,5"/>
+                        </DockPanel>
+                        <DataGrid x:Name="ProgramsGrid" ItemsSource="{Binding Programs}" AutoGenerateColumns="False"
+                                  IsReadOnly="True" CanUserAddRows="False" Height="190">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="프로그램" Binding="{Binding FileName}" Width="*"/>
+                                <DataGridTextColumn Header="T0 + N분" Binding="{Binding DelayMinutes}" Width="90"/>
+                                <DataGridTextColumn Header="권한" Binding="{Binding PrivilegeText}" Width="80"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <Button Content="선택 항목 제거" HorizontalAlignment="Right" Margin="0,9,0,0"
+                                Click="RemoveProgram_Click" Padding="10,5"/>
+                        <TextBlock Text="후속 프로그램은 예약 시각이 아니라 실제 Resume 준비 완료 T0를 기준으로 실행합니다. 0분과 같은 지연 시간의 여러 프로그램도 허용합니다."
+                                   Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,12,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="PowerOffNotice" Background="#35292A" BorderBrush="#654449"
+                        BorderThickness="1" CornerRadius="9" Padding="18" Margin="0,18,0,0">
+                    <TextBlock x:Name="PowerOffNoticeText"
+                               Text="예약한 절전 또는 최대 절전 동작은 정확히 5분 전에 경고합니다. 저장하지 않은 작업이 없도록 미리 확인하세요."
+                               TextWrapping="Wrap" Foreground="#FFD8DE"/>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+            <Button Content="취소" IsCancel="True" Margin="0,0,8,0"/>
+            <Button Content="저장" Style="{StaticResource AccentButton}" Click="Save_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
