@@ -319,7 +319,15 @@ public static class AppText
         ("저장하지 않은 작업을 먼저 저장하세요.", "Save any unsaved work first."),
         ("계속하시겠습니까?", "Continue?"),
         ("선택한 예약을 삭제하시겠습니까?", "Delete the selected schedule?"),
-        ("개를 실행할 방법을 선택하세요.", " programs should run.")
+        ("개를 실행할 방법을 선택하세요.", " programs should run."),
+        ("동작 실행을 시작했습니다.", " action execution started."),
+        ("전원 전환과 복귀 증거를 확인해 완료 처리했습니다.", " power transition and resume evidence was verified and marked complete."),
+        ("실행은 시작됐지만 완료 여부를 입증할 증거가 부족합니다.", " execution started, but there is not enough evidence to prove completion."),
+        ("작업이 오류 결과로 종료되어 실패 처리했습니다.", " task ended with an error result and was marked failed."),
+        ("전원 전환 명령이 실패했습니다.", " power transition command failed."),
+        ("상태에서 복귀한 Windows 전원 이벤트를 확인해 완료 처리했습니다.", " resume was verified from Windows power events and marked complete."),
+        ("미실행 — 예약 시각에 전원 작업이 실행된 증거가 없습니다.", "Missed — there is no evidence that the power task ran at the scheduled time."),
+        ("사용자 선택으로 ", "User selected ")
     ];
 #endif
 }

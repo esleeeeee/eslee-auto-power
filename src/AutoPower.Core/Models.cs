@@ -28,6 +28,9 @@ public static class PowerSchedulePolicy
     public static bool IsLowPowerEntry(PowerActionType action) =>
         action is PowerActionType.Sleep or PowerActionType.Hibernate;
 
+    public static bool IsPowerTransition(PowerActionType action) =>
+        action is PowerActionType.Shutdown or PowerActionType.Sleep or PowerActionType.Hibernate;
+
     public static PowerActionType ResolveWakeAction(
         WakeModePreference preference,
         bool s3Available,
@@ -71,6 +74,12 @@ public static class PowerSchedulePolicy
     };
 }
 
+public static class PowerTransitionPolicy
+{
+    public static TimeSpan InvocationTolerance { get; } = TimeSpan.FromMinutes(2);
+    public static TimeSpan EvidenceGracePeriod { get; } = TimeSpan.FromMinutes(5);
+}
+
 public enum ScheduleStatus
 {
     Pending,
@@ -78,7 +87,9 @@ public enum ScheduleStatus
     Failed,
     Skipped,
     Missed,
-    Disabled
+    Disabled,
+    PendingPowerTransition,
+    ResultUnknown
 }
 
 public enum ResultKind
@@ -132,7 +143,8 @@ public enum PendingOperationType
     ArmAutologon,
     DisarmAutologon,
     Reconcile,
-    Cleanup
+    Cleanup,
+    PowerTransition
 }
 
 public enum PendingOperationState

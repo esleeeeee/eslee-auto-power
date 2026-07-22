@@ -1,73 +1,66 @@
-# v1.0.1 검증 결과
+# v1.0.2 검증 결과
 
-2026-07-22 패치 릴리스 기준입니다.
+검증일: 2026-07-23
 
-자동 검증:
+## 실제 장애 증거
 
-- 한국어 Release 전체 빌드: 경고 0, 오류 0
-- 영어 Release 전체 빌드: 경고 0, 오류 0
-- 한국어 MSTest: 71/71 통과
-- 영어 MSTest: 71/71 통과
-- 새 예약 기본값: 화면을 연 현재 로컬 시각, 초·밀리초 0 정규화 검증
-- 완전 종료 빠른 예약: 클릭 시점 기준 1시간·2시간, 자정·월말·연말 전환 검증
-- 기존 DB enum: `Shutdown=1` 유지, 실제 SQLite 저장·조회 및 ON 상태 보존 검증; schema migration 없음
-- 자동 시작: S3/S4 전용 해석 유지, 레거시 `PowerOn`만 실행 차단
-- 완전 종료: 정상 `/soft` 명령과 `/f` fallback 분리, 30초 유예, 최근 완료 Shutdown만 fallback 허용하는 검증
-- Task Scheduler: Shutdown power·5분 전 warning 등록 경로와 fallback 작업의 예약 GUID 식별 검증
-- WPF 실창: Windows 배율 125%에서 기본 예약 창의 동작 목록·빠른 버튼·현재 시각 반영 확인
-- 호환성 실창: 기존 S3/S4 행과 테스트 버튼을 유지하고 자동 로그인 검증 행만 추가; 900×700, 1000×700, 1200×700 DIP에서 잘림·가로 스크롤 없음 확인
-- 한국어·영어 self-contained publish 실행: 창 표시·응답성·격리 SQLite 초기화 확인
+- 운영 설치본: v1.0.0, 실행 파일 커밋 `04a4f5e`
+- 예약 ID: `829318b2-cc26-4cc5-b583-474815c20ea3`
+- DB: 2026-07-23 01:00 최대 절전, `PowerAction` 시작 기록 존재, 당시 성공·실패 확정 기록 없음
+- 기술 로그: 2026-07-22 22:50:41 예약 Task 등록 확인; 00:55~01:10 별도 Helper 오류 없음
+- Task Scheduler Operational 채널: 비활성 상태라 과거 `power-*` 실행 이벤트 없음
+- 실행 뒤 `power-*` Task: 이미 없어 XML, LastRunTime, LastTaskResult, NextRunTime 사후 조회 불가
+- 남은 경고 Task: LastRunTime 2026-07-23 00:55, LastTaskResult `0x00000000`, NextRunTime 없음
+- Windows Kernel-Power 187: 01:00:00 `AutoPower.Helper.exe`가 SetSuspendState 호출
+- Windows Kernel-Power 42: 01:00:03 `TargetState=5`, `EffectiveState=5`, Application API 사유로 S4 진입
+- Windows Power-Troubleshooter 1: SleepTime 01:00:00, WakeTime 06:35:17, TargetState/EffectiveState 5
+- 앱 프로세스 시작 시각: 전날 20:09. S4 동안 종료되지 않고 살아 있어 복귀 뒤 기존 트레이 창이 오래된 화면 컬렉션을 계속 표시함
+
+원본 `%ProgramData%` DB, 현재 설치 파일과 실제 Task는 읽기 전용으로 조사했다. 복구 스모크 테스트는 운영 DB의 별도 복사본과 격리된 `ESLEE_AUTOPOWER_DATA_ROOT`에서만 수행했다.
+
+## 수정 검증
+
+- `ExecutionStarted`, power-transition pending journal, `PendingPowerTransition`을 단일 SQLite 트랜잭션으로 저장
+- durable commit 뒤 `power-*` Task 소비, 이후에만 Sleep/Hibernate/Shutdown 호출
+- 정상 S3/S4 복귀 시 Windows 전원 이벤트 확인 후 `PowerTransitionCompleted`
+- Helper 중단 시 앱 시작/활성화 reconciliation으로 Completed, Failed, Missed, ResultUnknown 확정
+- legacy v1.0.0처럼 선행 Completed 처리된 예약도 실제 이벤트가 있어야 `PowerTransitionRecovered` 성공 기록 생성
+- `StartWhenAvailable=false`, `MultipleInstances=IgnoreNew`, EndBoundary=예약 시각+2분 확인
+- Resume 뒤 트레이 창 재활성화 시 DB·실행 기록 새로고침
+
+운영 DB 복사본 스모크 결과:
+
+- 01:00 Helper 호출 + S4 진입 + 06:35 복귀를 모두 대조
+- ScheduleStatus `Completed`, IsEnabled `false` 유지
+- `PowerTransitionRecovered / Success` 생성
+- 원본 운영 DB에는 새 기록이나 상태 변경이 생기지 않음
+
+## 자동화 결과
+
+- 한국어 Release 빌드: 경고 0, 오류 0
+- 영어 Release 빌드: 경고 0, 오류 0
+- 한국어 MSTest: 84/84 통과
+- 영어 MSTest: 84/84 통과
 - NuGet 직접·전이 취약 패키지: 0건
-- 설치 파일 ProductVersion: 1.0.1
+- 게시본 ProductVersion/FileVersion: 1.0.2 / 1.0.2.0
 
-설치 파일:
+추가된 주요 시나리오:
 
-- 한국어: `eslee-auto-power-v1.0.1-ko-setup.exe`
-  - SHA-256: `C35EC117C73BCC1BACB922F67BBBE0705DA3F070ABF9D9FE49E016F7C2B3103D`
-- 영어: `eslee-auto-power-v1.0.1-en-setup.exe`
-  - SHA-256: `62B5A5C478A779B8002B348C5BE0559E99F0DA1A4276E53B963CD7577D0EB856`
+- 최대 절전 호출 직전 프로세스 중단
+- 최대 절전 후 복귀
+- 복귀 전에 앱이 종료되고 다음 앱 시작에서 복구
+- 실행된 예약의 미래 목록 제거와 실행 기록 생성
+- 과거 예약 지연 실행 차단
+- Task 실행/결과 기록 누락 조합
+- Task 자체 미실행
+- 동일 예약 중복 실행 및 중복 terminal history 방지
+- Windows 증거 접근 실패 시 상태를 임의로 덮어쓰지 않음
 
-릴리스 패키징 중 의도적으로 수행하지 않은 실기 항목:
+## 설치 파일
 
-- 사용자 PC를 실제로 종료하는 완전 종료 예약과 30초 강제 fallback
-- 실제 UAC Task Scheduler 등록 및 기존 설치본 위에 설치하는 업그레이드 실행
-- S3/S4 sleep/hibernate와 실제 Wake
+- 한국어: `artifacts/installer/eslee-auto-power-v1.0.2-ko-setup.exe`
+  - SHA-256: `5E495C71536BC3B8FEB725CBD1A52CE5E88F0B7AC6D72BFCF7FB6EB2962366A3`
+- 영어: `artifacts/installer/eslee-auto-power-v1.0.2-en-setup.exe`
+  - SHA-256: `D5B6DA9BAFCA39EAF1CFCDF5378AFC40196A854A8CD339FBBDB65F0C4D8E1EC4`
 
-실제 완전 종료는 저장하지 않은 작업과 현재 세션을 종료하므로 자동 패키징 검증에서 실행하지 않았다. 설치 정의는 앱 파일만 업그레이드하고 `%ProgramData%`의 DB·설정은 제거 과정에서만 삭제하며, 기존 Shutdown DB 값은 schema 변경 없이 읽는다.
-
----
-
-# v1.0.0 검증 결과
-
-2026-07-17 공개 릴리스 기준입니다.
-
-자동 검증:
-
-- 한국어 Release 전체 빌드: 경고 0, 오류 0
-- 영어 Release 전체 빌드: 경고 0, 오류 0
-- 한국어 MSTest: 63/63 통과
-- 영어 MSTest: 63/63 통과
-- self-contained Windows x64 한국어·영어 설치 파일 및 SHA-256 파일 생성
-- 영어 WPF 실창 검증: 메인, 예약 편집, 고급 프로그램 옵션, 설정, 정보 화면
-- 호환성 화면 실창 검증: 900×700, 1000×700, 1200×700에서 버튼·열·자동 줄바꿈 확인
-- NuGet 취약 패키지 검사: 0건
-- WPF 격리 스모크: 프로세스 실행, 창 제목, 응답성, SQLite 초기화 확인
-- 이전 버전 정리: 제거된 전원 예약 실행 차단, 기존 작업과 임시 보안 상태 정리
-- S3/S4 1회 자동 로그인: AC/DC 원본 보존, arm 실패 rollback, 복원 재시도, 반복 실패 journal, 실제 Windows 설정 read-only 조회
-- Microsoft 계정 로그인: 메일 주소를 `MicrosoftAccount\메일주소`로 자동 정규화하고 명시 형식·로컬 계정·잘못된 형식 검증
-- 호환성 S3/S4 실기 테스트: Wake 시각이 현재 시각 기준 2분 뒤인지 검증
-- 호환성 S3/S4 실기 테스트: 테스트 예약의 1회 자동 로그인 강제 활성화, 로그인 요구 설정 arm, Wake 직후 경합 방지를 위한 지연 복원 검증
-- SQLite: 실제 DB schema, 예약/후속 프로그램 round-trip, history 유지, pending operation 내구성
-- 후속 프로그램: 0분 동시 실행, 전체 경로 이미 실행 중 건너뜀, 부분 실패 격리, 중복 시도 방지
-- 관리자 후속 프로그램: 프로그램별 권한 플래그 DB 왕복·기존 DB 마이그레이션·최고 권한 작업 식별·사전 승인 작업 호출 라우팅 검증
-- 후속 프로그램 편집 UI: 고급 옵션 확장 시 전체 필드와 하단 버튼 렌더링, 작은 창 세로 스크롤 지원
-- 예약: 과거 거부, 동일 시각 상충 거부, 제거된 전원 동작 차단, 2분 간격 규칙 없음, 다음 Wake 우선순위
-- 경고: 정확히 5분, timeout/X는 원래 예약 유지, 30초가 전원 시각을 바꾸지 않음
-
-릴리스 패키징 중 의도적으로 수행하지 않은 실기 항목:
-
-- S3/S4 sleep/hibernate와 실제 Wake
-- S3/S4 1회 자동 로그인 후 잠금 화면 생략 및 원래 설정 복구 실기 확인
-- 실제 UAC Task Scheduler 등록(사용자 승인 필요)
-
-실기 성공 전 UI의 지원 상태를 확정하지 않습니다.
+실제 PC를 다시 절전·최대 절전·완전 종료시키는 파괴적 통합 테스트와 현재 설치본 덮어쓰기는 수행하지 않았다. 실제 당일 S4 이벤트와 운영 DB 복사본으로 recovery 판정을 검증했다.

@@ -32,7 +32,7 @@ public sealed class WarningPolicyTests
         var schedule = PowerSchedule.Create(new DateTime(2030, 2, 3, 23, 0, 0), PowerActionType.Shutdown) with
         {
             IsEnabled = false,
-            Status = ScheduleStatus.Completed
+            Status = ScheduleStatus.PendingPowerTransition
         };
 
         Assert.IsTrue(WarningPolicy.CanRunShutdownFallback(schedule, now));

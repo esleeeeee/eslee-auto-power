@@ -284,6 +284,13 @@ public sealed class IntegrityReconciler
             }
         }
 
+        var powerTransitions = new PowerTransitionReconciler(
+            _store,
+            _registrar,
+            new WindowsPowerTransitionEvidenceSource(_registrar, _logger),
+            _logger);
+        await powerTransitions.ReconcileAsync(canRepairSystem, cancellationToken).ConfigureAwait(false);
+
         var all = await _store.GetAllSchedulesAsync(cancellationToken).ConfigureAwait(false);
         foreach (var missed in all.Where(schedule =>
                      schedule.Status == ScheduleStatus.Pending && schedule.ScheduledLocalDateTime < DateTime.Now - TimeSpan.FromMinutes(2)))

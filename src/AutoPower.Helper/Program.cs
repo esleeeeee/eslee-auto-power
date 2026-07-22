@@ -245,30 +245,42 @@ internal static class HelperProgram
                     }
 
                     ValidateScheduledInvocation(schedule, schedule.ActionType);
-                    if (schedule.ActionType == PowerActionType.Shutdown)
-                    {
-                        await RecordShutdownWakeConflictAsync(store, schedule).ConfigureAwait(false);
-                        registrar.RegisterShutdownFallback(id, DateTime.Now + WarningPolicy.ShutdownGracePeriod);
-                    }
-                    else
-                    {
-                        await EnsureNextWakeAsync(store, registrar, id).ConfigureAwait(false);
-                    }
-                    await store.AddHistoryAsync(id, "PowerAction", ResultKind.Information, schedule.ScheduledLocalDateTime,
-                        $"{KoreanAction(schedule.ActionType)} 동작을 시작했습니다.").ConfigureAwait(false);
-                    await store.UpdateScheduleStateAsync(id, false, ScheduleStatus.Completed).ConfigureAwait(false);
+                    var operation = await store.TryBeginPowerTransitionAsync(
+                        schedule,
+                        $"{KoreanAction(schedule.ActionType)} 동작 실행을 시작했습니다.").ConfigureAwait(false)
+                        ?? throw new InvalidOperationException("이미 소비됐거나 실행 중인 전원 예약입니다.");
                     try
                     {
-                        await new PowerActionExecutor().ExecuteAsync(schedule.ActionType).ConfigureAwait(false);
-                    }
-                    catch
-                    {
+                        registrar.ConsumePowerTask(id);
                         if (schedule.ActionType == PowerActionType.Shutdown)
                         {
-                            registrar.Remove(id);
+                            await RecordShutdownWakeConflictAsync(store, schedule).ConfigureAwait(false);
+                            registrar.RegisterShutdownFallback(id, DateTime.Now + WarningPolicy.ShutdownGracePeriod);
+                        }
+                        else
+                        {
+                            await EnsureNextWakeAsync(store, registrar, id).ConfigureAwait(false);
                         }
 
-                        await store.UpdateScheduleStateAsync(id, false, ScheduleStatus.Failed).ConfigureAwait(false);
+                        await new PowerActionExecutor().ExecuteAsync(schedule.ActionType).ConfigureAwait(false);
+                        if (schedule.ActionType != PowerActionType.Shutdown)
+                        {
+                            await FinalizeResumedPowerTransitionAsync(
+                                store, registrar, logger, schedule, operation.CreatedAtUtc).ConfigureAwait(false);
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        await store.TryFinalizePowerTransitionAsync(
+                            id,
+                            ScheduleStatus.Failed,
+                            "PowerTransitionFailed",
+                            ResultKind.Failure,
+                            schedule.ScheduledLocalDateTime,
+                            $"{KoreanAction(schedule.ActionType)} 전원 전환 명령이 실패했습니다.",
+                            [ScheduleStatus.PendingPowerTransition],
+                            error.HResult.ToString("X8", System.Globalization.CultureInfo.InvariantCulture)).ConfigureAwait(false);
+                        registrar.Remove(id);
                         throw;
                     }
 
@@ -285,31 +297,42 @@ internal static class HelperProgram
                         throw new InvalidOperationException("5분 전 경고가 열린 활성 전원 예약만 지금 실행할 수 있습니다.");
                     }
 
-                    registrar.Remove(id);
-                    if (schedule.ActionType == PowerActionType.Shutdown)
-                    {
-                        await RecordShutdownWakeConflictAsync(store, schedule).ConfigureAwait(false);
-                        registrar.RegisterShutdownFallback(id, DateTime.Now + WarningPolicy.ShutdownGracePeriod);
-                    }
-                    else
-                    {
-                        await EnsureNextWakeAsync(store, registrar, id).ConfigureAwait(false);
-                    }
-                    await store.UpdateScheduleStateAsync(id, false, ScheduleStatus.Completed).ConfigureAwait(false);
-                    await store.AddHistoryAsync(id, "PowerAction", ResultKind.Information, schedule.ScheduledLocalDateTime,
-                        $"사용자 선택으로 {KoreanAction(schedule.ActionType)} 동작을 지금 시작했습니다.").ConfigureAwait(false);
+                    var operation = await store.TryBeginPowerTransitionAsync(
+                        schedule,
+                        $"사용자 선택으로 {KoreanAction(schedule.ActionType)} 동작 실행을 시작했습니다.").ConfigureAwait(false)
+                        ?? throw new InvalidOperationException("이미 소비됐거나 실행 중인 전원 예약입니다.");
                     try
                     {
-                        await new PowerActionExecutor().ExecuteAsync(schedule.ActionType).ConfigureAwait(false);
-                    }
-                    catch
-                    {
+                        registrar.Remove(id);
                         if (schedule.ActionType == PowerActionType.Shutdown)
                         {
-                            registrar.Remove(id);
+                            await RecordShutdownWakeConflictAsync(store, schedule).ConfigureAwait(false);
+                            registrar.RegisterShutdownFallback(id, DateTime.Now + WarningPolicy.ShutdownGracePeriod);
+                        }
+                        else
+                        {
+                            await EnsureNextWakeAsync(store, registrar, id).ConfigureAwait(false);
                         }
 
-                        await store.UpdateScheduleStateAsync(id, false, ScheduleStatus.Failed).ConfigureAwait(false);
+                        await new PowerActionExecutor().ExecuteAsync(schedule.ActionType).ConfigureAwait(false);
+                        if (schedule.ActionType != PowerActionType.Shutdown)
+                        {
+                            await FinalizeResumedPowerTransitionAsync(
+                                store, registrar, logger, schedule, operation.CreatedAtUtc).ConfigureAwait(false);
+                        }
+                    }
+                    catch (Exception error)
+                    {
+                        await store.TryFinalizePowerTransitionAsync(
+                            id,
+                            ScheduleStatus.Failed,
+                            "PowerTransitionFailed",
+                            ResultKind.Failure,
+                            schedule.ScheduledLocalDateTime,
+                            $"{KoreanAction(schedule.ActionType)} 전원 전환 명령이 실패했습니다.",
+                            [ScheduleStatus.PendingPowerTransition],
+                            error.HResult.ToString("X8", System.Globalization.CultureInfo.InvariantCulture)).ConfigureAwait(false);
+                        registrar.Remove(id);
                         throw;
                     }
 
@@ -559,6 +582,37 @@ internal static class HelperProgram
         if (next is not null)
         {
             registrar.Register(next);
+        }
+    }
+
+    private static async Task FinalizeResumedPowerTransitionAsync(
+        SqliteStore store,
+        TaskSchedulerService registrar,
+        TechnicalLogger logger,
+        PowerSchedule schedule,
+        DateTimeOffset startedAtUtc)
+    {
+        await Task.Delay(TimeSpan.FromMilliseconds(750)).ConfigureAwait(false);
+        var evidence = new WindowsPowerTransitionEvidenceSource(registrar, logger)
+            .Inspect(schedule, startedAtUtc, DateTimeOffset.UtcNow);
+        if (!evidence.CompletionObserved)
+        {
+            logger.Warning("power-transition.awaiting-reconciliation",
+                $"schedule={schedule.Id:D};entry={evidence.EntryObserved};detail={evidence.Detail}");
+            return;
+        }
+
+        if (await store.TryFinalizePowerTransitionAsync(
+                schedule.Id,
+                ScheduleStatus.Completed,
+                "PowerTransitionCompleted",
+                ResultKind.Success,
+                schedule.ScheduledLocalDateTime,
+                $"{KoreanAction(schedule.ActionType)} 상태에서 복귀한 Windows 전원 이벤트를 확인해 완료 처리했습니다.",
+                [ScheduleStatus.PendingPowerTransition],
+                actualTimeUtc: evidence.CompletionTimeUtc).ConfigureAwait(false))
+        {
+            registrar.Remove(schedule.Id);
         }
     }
 

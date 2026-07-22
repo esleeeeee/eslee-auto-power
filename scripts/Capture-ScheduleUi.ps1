@@ -5,7 +5,7 @@ param(
     [string]$DataRoot,
     [Parameter(Mandatory)]
     [string]$OutputDirectory,
-    [string]$Version = '1.0.1',
+    [string]$Version = '1.0.2',
     [ValidateSet('schedule', 'main', 'settings', 'program', 'about')]
     [string]$View = 'schedule'
 )

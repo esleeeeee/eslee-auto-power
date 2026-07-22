@@ -1,5 +1,25 @@
 # 변경 이력 / Changelog
 
+## 1.0.2 - 2026-07-23
+
+- 예약 전원 호출 전에 `ExecutionStarted`, pending operation journal, `PendingPowerTransition` 상태를 하나의 SQLite 트랜잭션으로 먼저 저장
+- 실행 중인 `power-*` 작업을 전원 호출 전에 소비하여 동일한 1회성 예약의 중복 실행 방지
+- S3/S4 복귀 후 Helper가 Windows 전원 이벤트를 확인해 완료 기록을 남기고, Helper가 중단돼도 다음 앱 시작에서 복구
+- 과거 전원 예약을 Task Scheduler 결과와 Kernel-Power·Power-Troubleshooter·User32 이벤트로 대조해 Completed, Failed, Missed 또는 ResultUnknown으로 정리
+- 단순히 시각이 지났거나 작업 결과가 0이라는 이유만으로 성공 처리하지 않도록 변경
+- `StartWhenAvailable=false`를 유지하고 일회성 Task EndBoundary를 2분 허용 범위로 축소해 놓친 전원 작업의 지연 실행 차단
+- Resume 뒤 트레이에서 기존 창을 다시 열 때 DB·실행 기록을 즉시 새로고침하여 과거 ON 예약이 남아 보이던 문제 수정
+- 실제 운영 DB 복사본과 2026-07-23 Windows 전원 이벤트를 이용해 01:00 S4 진입 및 06:35 복귀 복구 판정 검증
+
+## 1.0.2 - English summary
+
+- Persists `ExecutionStarted`, a pending-operation journal, and `PendingPowerTransition` atomically before invoking power APIs
+- Consumes the one-time `power-*` task before the transition to prevent duplicate execution
+- Finalizes S3/S4 after resume and recovers interrupted transitions on the next app start
+- Reconciles Task Scheduler results with Windows power events instead of assuming that a past schedule succeeded
+- Keeps `StartWhenAvailable=false` and limits one-time task validity to the existing two-minute tolerance
+- Refreshes the tray-resident app after resume/activation so completed schedules no longer appear stale and enabled
+
 ## 1.0.1 - 2026-07-22
 
 - S5 자동 부팅과 별개인 `완전 종료` 예약을 복구하고 기존 DB enum 값 호환 유지

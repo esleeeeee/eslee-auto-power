@@ -17,7 +17,7 @@ public static class WarningPolicy
 
     public static bool CanRunShutdownFallback(PowerSchedule schedule, DateTime nowLocal) =>
         schedule.ActionType == PowerActionType.Shutdown &&
-        schedule.Status == ScheduleStatus.Completed &&
+        schedule.Status == ScheduleStatus.PendingPowerTransition &&
         nowLocal >= schedule.ScheduledLocalDateTime - TimeSpan.FromMinutes(6) &&
         nowLocal <= schedule.ScheduledLocalDateTime + TimeSpan.FromMinutes(2);
 

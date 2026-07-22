@@ -29,7 +29,7 @@ App-controlled startup after a full shutdown is intentionally not presented or e
 
 ## Quick start
 
-1. Download `eslee-auto-power-v1.0.1-en-setup.exe` from [Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest).
+1. Download `eslee-auto-power-v1.0.2-en-setup.exe` from [Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest).
 2. Open Compatibility and run the two-minute real test for an available S3/S4 path.
 3. In Settings, save and validate the Windows account password. Windows Hello PINs are not supported.
 4. Create a scheduled wake or choose full shutdown, hibernation, or sleep. A new schedule starts with the local date and time at which the editor was opened.
@@ -59,6 +59,8 @@ flowchart LR
     E --> F["Set T0"]
     F --> G["Launch follow-up programs at T0 + N"]
 ```
+
+Before a scheduled sleep, hibernation, or full shutdown, the app durably stores `ExecutionStarted`, a pending journal, and `PendingPowerTransition`, then consumes the one-time task. After resume or on the next app start, it reconciles Windows power events with Task Scheduler evidence and records completed, failed, missed, or unknown. A past schedule is never assumed successful or run late merely because its time has passed.
 
 The application separates responsibilities into three processes:
 
@@ -115,7 +117,7 @@ Requirements:
 dotnet restore .\AutoPower.sln
 dotnet build .\AutoPower.sln -c Release
 dotnet test .\tests\AutoPower.Tests\AutoPower.Tests.csproj -c Release
-.\scripts\Build-Release.ps1 -Version 1.0.1
+.\scripts\Build-Release.ps1 -Version 1.0.2
 ```
 
 Use `-p:AppLanguage=ko` or `-p:AppLanguage=en` for a single-language build. The release script produces self-contained x64 Korean and English installers plus SHA-256 files under `artifacts\installer`.

@@ -29,7 +29,7 @@ Windows 작업 스케줄러의 `WakeToRun`만 등록해 두면 PC가 어떤 상�
 
 ## 빠른 시작
 
-1. [Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest)에서 `eslee-auto-power-v1.0.1-ko-setup.exe`를 내려받아 설치합니다.
+1. [Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest)에서 `eslee-auto-power-v1.0.2-ko-setup.exe`를 내려받아 설치합니다.
 2. `호환성`에서 S3/S4 지원 상태를 확인하고 가능한 전원 방식의 2분 실기 테스트를 진행합니다.
 3. `설정`에서 Windows 계정 암호를 저장·검증합니다. Windows Hello PIN은 사용할 수 없습니다.
 4. `+ 새 예약`에서 자동 시작 또는 완전 종료·최대 절전·절전 동작을 선택합니다. 새 예약의 날짜와 시각은 화면을 연 현재 시각으로 시작합니다.
@@ -59,6 +59,8 @@ flowchart LR
     E --> F["T0 확정"]
     F --> G["T0 + N분 후속 프로그램 실행"]
 ```
+
+절전·최대 절전·완전 종료 예약은 전원 명령보다 먼저 `ExecutionStarted`, pending journal, `PendingPowerTransition` 상태를 DB에 저장하고 해당 1회성 Task를 소비합니다. S3/S4 복귀 또는 다음 앱 시작 때 Windows 전원 이벤트와 Task 결과를 대조해 완료·실패·미실행·결과 불명 중 하나로 확정합니다. 따라서 과거 예약을 단순히 성공으로 간주하거나 늦게 다시 실행하지 않습니다.
 
 앱은 역할을 세 프로세스로 나눕니다.
 
@@ -120,7 +122,7 @@ dotnet test .\tests\AutoPower.Tests\AutoPower.Tests.csproj -c Release
 한국어·영어 설치 파일을 함께 만들려면:
 
 ```powershell
-.\scripts\Build-Release.ps1 -Version 1.0.1
+.\scripts\Build-Release.ps1 -Version 1.0.2
 ```
 
 언어별 단일 빌드는 `-p:AppLanguage=ko` 또는 `-p:AppLanguage=en`을 사용합니다. 릴리스 스크립트는 self-contained x64 설치 파일 두 개와 SHA-256 파일을 `artifacts\installer`에 만듭니다.

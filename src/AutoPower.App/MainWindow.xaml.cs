@@ -14,12 +14,14 @@ public partial class MainWindow : Window
     private TrayService? _tray;
     private bool _loadingSettings;
     private bool _evaluatingSleepWakeTest;
+    private bool _refreshingAfterActivation;
 
     public MainWindow()
     {
         InitializeComponent();
         DataContext = _viewModel;
         Loaded += MainWindow_Loaded;
+        Activated += MainWindow_Activated;
         Closing += MainWindow_Closing;
     }
 
@@ -98,6 +100,29 @@ public partial class MainWindow : Window
             e.Cancel = true;
             Hide();
             _tray?.ShowBalloon("eslee Auto Power", "앱이 시스템 트레이에서 계속 실행됩니다.");
+        }
+    }
+
+    private async void MainWindow_Activated(object? sender, EventArgs e)
+    {
+        if (!IsLoaded || _refreshingAfterActivation)
+        {
+            return;
+        }
+
+        _refreshingAfterActivation = true;
+        try
+        {
+            await AppServices.ReconcilePowerTransitionsAsync();
+            await RefreshAsync();
+        }
+        catch (Exception error)
+        {
+            AppServices.Logger.Error("power-transition.activation-refresh-failed", error);
+        }
+        finally
+        {
+            _refreshingAfterActivation = false;
         }
     }
 

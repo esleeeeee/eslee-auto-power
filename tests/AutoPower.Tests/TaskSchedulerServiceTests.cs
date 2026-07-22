@@ -26,14 +26,15 @@ public sealed class TaskSchedulerServiceTests
     }
 
     [TestMethod]
-    public void OneTimeTriggerIncludesEndBoundaryRequiredForExpirationCleanup()
+    public void OneTimeTriggerExpiresAtTheLateExecutionTolerance()
     {
         var localTime = new DateTime(2026, 7, 10, 21, 45, 0, DateTimeKind.Local);
 
         var boundaries = TaskSchedulerService.CreateTimeTriggerBoundaries(localTime);
 
         Assert.AreEqual("2026-07-10T21:45:00", boundaries.StartBoundary);
-        Assert.AreEqual("2026-07-11T21:45:00", boundaries.EndBoundary);
+        Assert.AreEqual("2026-07-10T21:47:00", boundaries.EndBoundary);
+        Assert.IsFalse(TaskSchedulerService.StartWhenAvailablePolicy);
     }
 
     [TestMethod]

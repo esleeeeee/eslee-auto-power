@@ -17,9 +17,22 @@ public interface ISystemScheduleRegistrar
 {
     void Register(PowerSchedule schedule);
     void Remove(Guid scheduleId);
+    void ConsumePowerTask(Guid scheduleId);
+    PowerTaskSnapshot GetPowerTaskSnapshot(Guid scheduleId);
     IReadOnlySet<string> ListOwnedTasks();
     void RegisterStartupAgent(string userName);
     void RemoveAllOwnedTasks();
+}
+
+public sealed record PowerTaskSnapshot(
+    bool Exists,
+    bool Enabled,
+    bool Running,
+    DateTime? LastRunTime,
+    int? LastTaskResult,
+    DateTime? NextRunTime)
+{
+    public static PowerTaskSnapshot Missing { get; } = new(false, false, false, null, null, null);
 }
 
 public sealed class TaskSchedulerService : ISystemScheduleRegistrar, IElevatedProgramLauncher
@@ -33,6 +46,7 @@ public sealed class TaskSchedulerService : ISystemScheduleRegistrar, IElevatedPr
     private const int TaskRunLevelLua = 0;
     private const int TaskRunLevelHighest = 1;
     private const int TaskInstancesIgnoreNew = 2;
+    internal static bool StartWhenAvailablePolicy => false;
     private readonly InstallationLayout _layout;
     private readonly TechnicalLogger _logger;
 
@@ -136,6 +150,55 @@ public sealed class TaskSchedulerService : ISystemScheduleRegistrar, IElevatedPr
         }
 
         DeleteTasksWithPrefix(session.Folder, $"elevated-{scheduleId:D}-");
+    }
+
+    public void ConsumePowerTask(Guid scheduleId)
+    {
+        using var session = OpenSession();
+        dynamic? task = null;
+        try
+        {
+            task = session.Folder.GetTask($"power-{scheduleId:D}");
+            task.Enabled = false;
+            _logger.Information("task.power-consumed", $"schedule={scheduleId:D}");
+        }
+        catch (Exception error) when (IsMissingSchedulerObject(error))
+        {
+            _logger.Warning("task.power-consume-missing", $"schedule={scheduleId:D}");
+        }
+        finally
+        {
+            Release(task);
+        }
+    }
+
+    public PowerTaskSnapshot GetPowerTaskSnapshot(Guid scheduleId)
+    {
+        SchedulerSession? session = null;
+        dynamic? task = null;
+        try
+        {
+            session = OpenSession(createFolders: false);
+            task = session.Folder.GetTask($"power-{scheduleId:D}");
+            var lastRun = (DateTime)task.LastRunTime;
+            var nextRun = (DateTime)task.NextRunTime;
+            return new PowerTaskSnapshot(
+                true,
+                (bool)task.Enabled,
+                (int)task.State == 4,
+                lastRun.Year >= 2000 ? lastRun : null,
+                (int)task.LastTaskResult,
+                nextRun.Year >= 2000 ? nextRun : null);
+        }
+        catch (Exception error) when (IsMissingSchedulerObject(error))
+        {
+            return PowerTaskSnapshot.Missing;
+        }
+        finally
+        {
+            Release(task);
+            session?.Dispose();
+        }
     }
 
     public void RegisterShutdownFallback(Guid scheduleId, DateTime localTime)
@@ -368,7 +431,7 @@ public sealed class TaskSchedulerService : ISystemScheduleRegistrar, IElevatedPr
         definition.RegistrationInfo.URI = $"\\eslee\\AutoPower\\{name}";
         definition.Settings.Enabled = true;
         definition.Settings.AllowDemandStart = true;
-        definition.Settings.StartWhenAvailable = false;
+        definition.Settings.StartWhenAvailable = StartWhenAvailablePolicy;
         definition.Settings.DisallowStartIfOnBatteries = false;
         definition.Settings.StopIfGoingOnBatteries = false;
         definition.Settings.WakeToRun = wakeToRun;
@@ -383,7 +446,7 @@ public sealed class TaskSchedulerService : ISystemScheduleRegistrar, IElevatedPr
     internal static (string StartBoundary, string EndBoundary) CreateTimeTriggerBoundaries(DateTime localTime)
     {
         var start = DateTime.SpecifyKind(localTime, DateTimeKind.Unspecified);
-        var end = start.AddDays(1);
+        var end = start.Add(PowerTransitionPolicy.InvocationTolerance);
         return (FormatBoundary(start), FormatBoundary(end));
     }
 
@@ -446,7 +509,7 @@ public sealed class TaskSchedulerService : ISystemScheduleRegistrar, IElevatedPr
         }
     }
 
-    private static SchedulerSession OpenSession()
+    private static SchedulerSession OpenSession(bool createFolders = true)
     {
         var serviceType = Type.GetTypeFromProgID("Schedule.Service", throwOnError: true)
                           ?? throw new PlatformNotSupportedException("Windows Task Scheduler 2.0을 사용할 수 없습니다.");
@@ -461,6 +524,11 @@ public sealed class TaskSchedulerService : ISystemScheduleRegistrar, IElevatedPr
         }
         catch (Exception error) when (IsMissingSchedulerObject(error))
         {
+            if (!createFolders)
+            {
+                throw;
+            }
+
             eslee = root.CreateFolder("eslee");
         }
 
@@ -471,6 +539,11 @@ public sealed class TaskSchedulerService : ISystemScheduleRegistrar, IElevatedPr
         }
         catch (Exception error) when (IsMissingSchedulerObject(error))
         {
+            if (!createFolders)
+            {
+                throw;
+            }
+
             folder = eslee.CreateFolder("AutoPower");
         }
 

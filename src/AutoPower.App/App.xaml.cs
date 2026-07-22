@@ -138,6 +138,7 @@ internal static class AppServices
     {
         AppPaths.EnsureCreated();
         await Store.InitializeAsync();
+        await ReconcilePowerTransitionsAsync();
         if (!string.Equals(Environment.GetEnvironmentVariable("ESLEE_AUTOPOWER_NO_STARTUP"), "1", StringComparison.Ordinal) &&
             await Store.GetSettingAsync("startup-initialized") is null)
         {
@@ -154,5 +155,16 @@ internal static class AppServices
                 await Store.SaveCompatibilityAsync(result);
             }
         }
+    }
+
+    public static async Task ReconcilePowerTransitionsAsync()
+    {
+        var registrar = new TaskSchedulerService(Layout, Logger);
+        var reconciler = new PowerTransitionReconciler(
+            Store,
+            registrar,
+            new WindowsPowerTransitionEvidenceSource(registrar, Logger),
+            Logger);
+        await reconciler.ReconcileAsync(canRepairSystem: false);
     }
 }
