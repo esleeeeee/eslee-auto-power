@@ -59,8 +59,8 @@
 ## 설치 파일
 
 - 한국어: `artifacts/installer/eslee-auto-power-v1.0.2-ko-setup.exe`
-  - SHA-256: `03CB75D71330BDD4110918455E0644512B9D2AAF8B3603AB99A3585DCBBDD9A0`
+  - SHA-256: `26A040EDA3D84C1F8B521FA7DDD50EA97B666562B7119E0AABF77CB87DAEC479`
 - 영어: `artifacts/installer/eslee-auto-power-v1.0.2-en-setup.exe`
-  - SHA-256: `A49BE58CB6F95954BAF9A3485285FE129E540124C708D86FB5741F5A9499104F`
+  - SHA-256: `7488C48DC51B71FF7D9845ECA6C4ED1B04EB138961E2759097BE8268F5A8A5DD`
 
 실제 PC를 다시 절전·최대 절전·완전 종료시키는 파괴적 통합 테스트와 현재 설치본 덮어쓰기는 수행하지 않았다. 실제 당일 S4 이벤트와 운영 DB 복사본으로 recovery 판정을 검증했다.
