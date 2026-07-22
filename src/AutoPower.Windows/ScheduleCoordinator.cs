@@ -321,7 +321,7 @@ public sealed class IntegrityReconciler
 
     internal static bool TryGetScheduleIdFromOwnedTaskName(string taskName, out Guid scheduleId)
     {
-        foreach (var prefix in new[] { "wake-", "warning-", "power-", "followup-" })
+        foreach (var prefix in new[] { "wake-", "warning-", "power-", "followup-", "shutdown-fallback-" })
         {
             if (taskName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
                 Guid.TryParseExact(taskName[prefix.Length..], "D", out scheduleId))

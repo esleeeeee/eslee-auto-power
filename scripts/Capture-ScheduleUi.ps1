@@ -5,7 +5,7 @@ param(
     [string]$DataRoot,
     [Parameter(Mandatory)]
     [string]$OutputDirectory,
-    [string]$Version = '1.0.0',
+    [string]$Version = '1.0.1',
     [ValidateSet('schedule', 'main', 'settings', 'program', 'about')]
     [string]$View = 'schedule'
 )
@@ -14,6 +14,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
@@ -216,7 +217,33 @@ try {
     $actionInput.GetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
     Start-Sleep -Milliseconds 600
     Save-WindowScreen $handle (Join-Path $OutputDirectory "unified-auto-start-actions-$Version.png")
-    $actionInput.GetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse()
+
+    $actionInput.SetFocus()
+    [Windows.Forms.SendKeys]::SendWait('{DOWN}{ENTER}')
+    Start-Sleep -Seconds 1
+
+    $oneHour = Find-ByAutomationId $root 'ShutdownAfterOneHourButton'
+    $twoHours = Find-ByAutomationId $root 'ShutdownAfterTwoHoursButton'
+    if ($null -eq $oneHour -or $null -eq $twoHours) {
+        throw 'The one-hour or two-hour shutdown shortcut was not found.'
+    }
+    Save-WindowPrint $handle (Join-Path $OutputDirectory "shutdown-shortcuts-$Version.png")
+
+    $oneHour.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Start-Sleep -Milliseconds 300
+    $timeInput = Find-ByAutomationId $root 'TimeInput'
+    if ($null -eq $timeInput) {
+        throw 'TimeInput was not found after using the quick shutdown shortcut.'
+    }
+    $actualQuickTime = $timeInput.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value
+    $expectedQuickTime = [DateTime]::Now.AddHours(1).ToString('HH:mm')
+    if ($actualQuickTime -ne $expectedQuickTime) {
+        throw "The one-hour shortcut produced '$actualQuickTime'; expected '$expectedQuickTime'."
+    }
+
+    $actionInput.SetFocus()
+    [Windows.Forms.SendKeys]::SendWait('{HOME}')
+    Start-Sleep -Milliseconds 500
 
     $wakeModeInput = Find-ByAutomationId $root 'WakeModeInput'
     if ($null -eq $wakeModeInput) {

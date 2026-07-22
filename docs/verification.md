@@ -1,3 +1,42 @@
+# v1.0.1 검증 결과
+
+2026-07-22 패치 릴리스 기준입니다.
+
+자동 검증:
+
+- 한국어 Release 전체 빌드: 경고 0, 오류 0
+- 영어 Release 전체 빌드: 경고 0, 오류 0
+- 한국어 MSTest: 71/71 통과
+- 영어 MSTest: 71/71 통과
+- 새 예약 기본값: 화면을 연 현재 로컬 시각, 초·밀리초 0 정규화 검증
+- 완전 종료 빠른 예약: 클릭 시점 기준 1시간·2시간, 자정·월말·연말 전환 검증
+- 기존 DB enum: `Shutdown=1` 유지, 실제 SQLite 저장·조회 및 ON 상태 보존 검증; schema migration 없음
+- 자동 시작: S3/S4 전용 해석 유지, 레거시 `PowerOn`만 실행 차단
+- 완전 종료: 정상 `/soft` 명령과 `/f` fallback 분리, 30초 유예, 최근 완료 Shutdown만 fallback 허용하는 검증
+- Task Scheduler: Shutdown power·5분 전 warning 등록 경로와 fallback 작업의 예약 GUID 식별 검증
+- WPF 실창: Windows 배율 125%에서 기본 예약 창의 동작 목록·빠른 버튼·현재 시각 반영 확인
+- 호환성 실창: 기존 S3/S4 행과 테스트 버튼을 유지하고 자동 로그인 검증 행만 추가; 900×700, 1000×700, 1200×700 DIP에서 잘림·가로 스크롤 없음 확인
+- 한국어·영어 self-contained publish 실행: 창 표시·응답성·격리 SQLite 초기화 확인
+- NuGet 직접·전이 취약 패키지: 0건
+- 설치 파일 ProductVersion: 1.0.1
+
+설치 파일:
+
+- 한국어: `eslee-auto-power-v1.0.1-ko-setup.exe`
+  - SHA-256: `C35EC117C73BCC1BACB922F67BBBE0705DA3F070ABF9D9FE49E016F7C2B3103D`
+- 영어: `eslee-auto-power-v1.0.1-en-setup.exe`
+  - SHA-256: `62B5A5C478A779B8002B348C5BE0559E99F0DA1A4276E53B963CD7577D0EB856`
+
+릴리스 패키징 중 의도적으로 수행하지 않은 실기 항목:
+
+- 사용자 PC를 실제로 종료하는 완전 종료 예약과 30초 강제 fallback
+- 실제 UAC Task Scheduler 등록 및 기존 설치본 위에 설치하는 업그레이드 실행
+- S3/S4 sleep/hibernate와 실제 Wake
+
+실제 완전 종료는 저장하지 않은 작업과 현재 세션을 종료하므로 자동 패키징 검증에서 실행하지 않았다. 설치 정의는 앱 파일만 업그레이드하고 `%ProgramData%`의 DB·설정은 제거 과정에서만 삭제하며, 기존 Shutdown DB 값은 schema 변경 없이 읽는다.
+
+---
+
 # v1.0.0 검증 결과
 
 2026-07-17 공개 릴리스 기준입니다.

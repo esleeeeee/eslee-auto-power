@@ -34,7 +34,8 @@ public partial class App : System.Windows.Application
                 var preview = new ScheduleEditorWindow(
                     null,
                     PowerCapabilityDetector.Detect(),
-                    await AppServices.Store.GetCompatibilityAsync());
+                    await AppServices.Store.GetCompatibilityAsync(),
+                    await AppServices.Store.GetAllSchedulesAsync());
                 MainWindow = preview;
                 preview.Show();
                 return;
@@ -59,7 +60,12 @@ public partial class App : System.Windows.Application
                 var schedule = await AppServices.Store.GetScheduleAsync(warningId);
                 if (schedule is not null && !PowerSchedulePolicy.IsRemovedSchedule(schedule.ActionType))
                 {
-                    var warning = new WarningWindow(schedule);
+                    var nextWake = schedule.ActionType == PowerActionType.Shutdown
+                        ? ScheduleValidator.SelectNextWake(
+                            (await AppServices.Store.GetAllSchedulesAsync()).Where(item => item.Id != schedule.Id),
+                            schedule.ScheduledLocalDateTime)
+                        : null;
+                    var warning = new WarningWindow(schedule, nextWake);
                     MainWindow = warning;
                     warning.Show();
                     return;

@@ -218,10 +218,12 @@ public partial class MainWindow : Window
     {
         PowerCapabilitySnapshot capability;
         IReadOnlyList<CompatibilityResult> compatibility;
+        IReadOnlyList<PowerSchedule> schedules;
         try
         {
             capability = PowerCapabilityDetector.Detect();
             compatibility = await AppServices.Store.GetCompatibilityAsync();
+            schedules = await AppServices.Store.GetAllSchedulesAsync();
         }
         catch (Exception error)
         {
@@ -229,7 +231,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var editor = new ScheduleEditorWindow(existing, capability, compatibility) { Owner = this };
+        var editor = new ScheduleEditorWindow(existing, capability, compatibility, schedules) { Owner = this };
         if (editor.ShowDialog() != true || editor.ResultSchedule is null)
         {
             return;
@@ -498,6 +500,7 @@ public partial class MainWindow : Window
             CredentialTransferFile.DeleteIfPresent(transferPath);
             CredentialPasswordInput.Clear();
             RefreshCredentialUi();
+            await _viewModel.RefreshAsync();
         }
     }
 
@@ -525,6 +528,7 @@ public partial class MainWindow : Window
         {
             CredentialPasswordInput.Clear();
             RefreshCredentialUi();
+            await _viewModel.RefreshAsync();
         }
     }
 
@@ -546,6 +550,7 @@ public partial class MainWindow : Window
             AppServices.Credentials.Delete();
             CredentialPasswordInput.Clear();
             RefreshCredentialUi();
+            await _viewModel.RefreshAsync();
         }
         catch (Exception error)
         {

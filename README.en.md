@@ -1,6 +1,6 @@
 # eslee Auto Power
 
-> A Windows 11 desktop utility that wakes a PC from S3 sleep or S4 hibernation at a scheduled time, waits for the user session to be ready, and launches follow-up programs.
+> A Windows 11 desktop utility for scheduled wake from S3 sleep or S4 hibernation, scheduled full shutdown/hibernation/sleep, and follow-up programs after resume.
 
 [Download the latest English installer](https://github.com/esleeeeee/eslee-auto-power/releases/latest) · [한국어 설치 파일](https://github.com/esleeeeee/eslee-auto-power/releases/latest)
 
@@ -15,26 +15,38 @@ A Windows `WakeToRun` task alone does not guide the user into the correct power 
 - At the scheduled time, Windows wakes the session and the app waits for the desktop-ready point `T0`.
 - Follow-up programs run at `T0 + N minutes`.
 - Optional one-time sign-in handling skips the lock screen for the next resume and restores the original setting afterward.
+- A separate power-action schedule can enter full shutdown, hibernation, or sleep at a chosen time.
 
 ## Supported power states
 
-| Power state | Scheduled wake | Notes |
-|---|---:|---|
-| S3 sleep | Supported | Requires S3 support from Windows and the PC firmware. |
-| S4 hibernation | Supported | Requires Windows hibernation to be enabled. |
-| S5 full shutdown | Not supported | A BIOS RTC alarm and safe Windows app control are different paths. |
+| Power state | Scheduled wake | Scheduled transition | Notes |
+|---|---:|---:|---|
+| S3 sleep | Supported | Supported | Requires S3 support from Windows and the PC firmware. |
+| S4 hibernation | Supported | Supported | Requires Windows hibernation to be enabled. |
+| S5 full shutdown | Not supported | Supported | The app can schedule turning the PC off, but cannot turn it back on from a full shutdown. |
 
 App-controlled startup after a full shutdown is intentionally not presented or emulated. For scheduled wake, leave the PC in **S3 sleep or S4 hibernation**.
 
 ## Quick start
 
-1. Download `eslee-auto-power-v1.0.0-en-setup.exe` from [Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest).
+1. Download `eslee-auto-power-v1.0.1-en-setup.exe` from [Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest).
 2. Open Compatibility and run the two-minute real test for an available S3/S4 path.
 3. In Settings, save and validate the Windows account password. Windows Hello PINs are not supported.
-4. Create a schedule and choose the date, time, wake mode, and any follow-up programs.
+4. Create a scheduled wake or choose full shutdown, hibernation, or sleep. A new schedule starts with the local date and time at which the editor was opened.
 5. Use `Enter S3 sleep now` or `Enter S4 hibernation now` with the same power state as the schedule.
 
 Save unsaved work before entering sleep or hibernation.
+
+## Scheduled full shutdown
+
+Full shutdown is the S5 action that turns the PC off. It is separate from waking or booting a PC from S5.
+
+- `Shut down in 1 hour` and `Shut down in 2 hours` appear only for the full-shutdown action. They calculate from the moment clicked and remain manually editable.
+- A warning appears exactly five minutes before the action.
+- At the scheduled time, the app requests a graceful shutdown first and runs a forced fallback if shutdown has not completed within 30 seconds.
+- If a later scheduled wake is active, the app explains that full shutdown prevents it from turning the PC back on. The five-minute warning can switch to the S3/S4 state required by that wake or continue with full shutdown after confirmation.
+
+Hibernation is recommended for a long wait and sleep for a short wait when a later scheduled wake is needed.
 
 ## How it works
 
@@ -83,7 +95,7 @@ For a program that requires elevation, open Advanced options and select `Run as 
 - Actual results may depend on UEFI power policy, Windows wake-timer settings, and vendor firmware.
 - Release installers are currently unsigned, so Windows SmartScreen may display a warning.
 
-Compatibility is not marked as confirmed from capability detection alone. Only a successful real S3/S4 wake test records `Confirmed supported`.
+Compatibility is not marked as confirmed from capability detection alone. Only a successful real S3/S4 wake test records `Confirmed supported`; the same screen also reports whether app-managed one-time sign-in credentials have been validated.
 
 ## Local data and privacy
 
@@ -103,7 +115,7 @@ Requirements:
 dotnet restore .\AutoPower.sln
 dotnet build .\AutoPower.sln -c Release
 dotnet test .\tests\AutoPower.Tests\AutoPower.Tests.csproj -c Release
-.\scripts\Build-Release.ps1 -Version 1.0.0
+.\scripts\Build-Release.ps1 -Version 1.0.1
 ```
 
 Use `-p:AppLanguage=ko` or `-p:AppLanguage=en` for a single-language build. The release script produces self-contained x64 Korean and English installers plus SHA-256 files under `artifacts\installer`.

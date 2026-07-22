@@ -40,6 +40,22 @@
                           DisplayMemberPath="Text"
                           SelectedValuePath="Value"/>
 
+                <Border x:Name="ShutdownShortcuts" Background="{StaticResource PanelBrush}"
+                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                        CornerRadius="9" Padding="18" Margin="0,18,0,0" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock Text="빠른 완전 종료 예약" FontSize="16" FontWeight="SemiBold"/>
+                        <TextBlock Text="버튼을 누른 현재 시각을 기준으로 날짜와 시간을 채웁니다. 이후에도 직접 수정할 수 있습니다."
+                                   Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,0,11"/>
+                        <WrapPanel>
+                            <Button x:Name="ShutdownAfterOneHourButton" Content="1시간 뒤 종료"
+                                    Click="ShutdownAfterOneHour_Click" Margin="0,0,8,8"/>
+                            <Button x:Name="ShutdownAfterTwoHoursButton" Content="2시간 뒤 종료"
+                                    Click="ShutdownAfterTwoHours_Click" Margin="0,0,0,8"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
                 <Border x:Name="WakeOptions" Background="{StaticResource PanelBrush}"
                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
                         CornerRadius="9" Padding="18" Margin="0,18,0,0">
@@ -83,7 +99,7 @@
                 <Border x:Name="PowerOffNotice" Background="#35292A" BorderBrush="#654449"
                         BorderThickness="1" CornerRadius="9" Padding="18" Margin="0,18,0,0">
                     <TextBlock x:Name="PowerOffNoticeText"
-                               Text="예약한 절전 또는 최대 절전 동작은 정확히 5분 전에 경고합니다. 저장하지 않은 작업이 없도록 미리 확인하세요."
+                            Text="예약한 전원 동작은 정확히 5분 전에 경고합니다. 저장하지 않은 작업이 없도록 미리 확인하세요."
                                TextWrapping="Wrap" Foreground="#FFD8DE"/>
                 </Border>
             </StackPanel>

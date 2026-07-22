@@ -88,7 +88,7 @@ public sealed class ScheduleValidatorTests
     }
 
     [TestMethod]
-    public void RemovedPowerActionsAreRejected()
+    public void OnlyLegacyPowerOnIsRejectedAndShutdownRemainsSupported()
     {
         var now = new DateTime(2030, 1, 1, 12, 0, 0);
 
@@ -96,7 +96,41 @@ public sealed class ScheduleValidatorTests
         var shutdown = ScheduleValidator.Validate(Create(now.AddHours(1), PowerActionType.Shutdown), now, []);
 
         Assert.IsTrue(powerOn.Issues.Any(item => item.Code == "removed-power-action"));
-        Assert.IsTrue(shutdown.Issues.Any(item => item.Code == "removed-power-action"));
+        Assert.IsTrue(shutdown.IsValid);
+    }
+
+    [TestMethod]
+    public void NewScheduleDefaultUsesCurrentLocalMinute()
+    {
+        var opened = new DateTime(2026, 7, 22, 23, 47, 59, 999, DateTimeKind.Local);
+
+        var result = ScheduleTimePolicy.NewScheduleDefault(opened);
+
+        Assert.AreEqual(new DateTime(2026, 7, 22, 23, 47, 0, DateTimeKind.Unspecified), result);
+    }
+
+    [TestMethod]
+    [DataRow(1, 2026, 7, 23, 0, 20)]
+    [DataRow(2, 2026, 7, 23, 1, 20)]
+    public void QuickShutdownUsesClickTimeAndCrossesMidnight(
+        int hours, int year, int month, int day, int hour, int minute)
+    {
+        var clicked = new DateTime(2026, 7, 22, 23, 20, 49, DateTimeKind.Local);
+
+        var result = ScheduleTimePolicy.QuickShutdown(clicked, hours);
+
+        Assert.AreEqual(new DateTime(year, month, day, hour, minute, 0, DateTimeKind.Unspecified), result);
+    }
+
+    [TestMethod]
+    public void QuickShutdownHandlesMonthAndYearBoundaries()
+    {
+        Assert.AreEqual(
+            new DateTime(2027, 1, 1, 0, 30, 0, DateTimeKind.Unspecified),
+            ScheduleTimePolicy.QuickShutdown(new DateTime(2026, 12, 31, 23, 30, 45), 1));
+        Assert.AreEqual(
+            new DateTime(2026, 3, 1, 0, 30, 0, DateTimeKind.Unspecified),
+            ScheduleTimePolicy.QuickShutdown(new DateTime(2026, 2, 28, 22, 30, 45), 2));
     }
 
     [TestMethod]

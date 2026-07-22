@@ -27,6 +27,21 @@ public sealed class SqliteStoreTests
     }
 
     [TestMethod]
+    public async Task ExistingShutdownActionRoundTripsWithoutMigration()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var schedule = PowerSchedule.Create(DateTime.Now.AddHours(1), PowerActionType.Shutdown);
+
+        await database.Store.SaveScheduleAsync(schedule);
+        var loaded = await database.Store.GetScheduleAsync(schedule.Id);
+
+        Assert.IsNotNull(loaded);
+        Assert.AreEqual(PowerActionType.Shutdown, loaded.ActionType);
+        Assert.IsTrue(loaded.IsEnabled);
+        Assert.AreEqual(ScheduleStatus.Pending, loaded.Status);
+    }
+
+    [TestMethod]
     public async Task VersionOneDatabaseAddsElevatedFlagWithoutChangingExistingPrograms()
     {
         var directory = Path.Combine(Path.GetTempPath(), "AutoPower.Tests", Guid.NewGuid().ToString("N"));

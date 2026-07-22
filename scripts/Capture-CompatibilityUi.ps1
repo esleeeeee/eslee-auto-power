@@ -82,7 +82,7 @@ $env:ESLEE_AUTOPOWER_NO_STARTUP = '1'
 $process = $null
 try {
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
-    $process = Start-Process -FilePath $Executable -PassThru
+    $process = Start-Process -FilePath $Executable -ArgumentList '--ui-preview-main' -PassThru
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     do {
         Start-Sleep -Milliseconds 250

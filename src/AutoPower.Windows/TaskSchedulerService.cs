@@ -130,13 +130,34 @@ public sealed class TaskSchedulerService : ISystemScheduleRegistrar, IElevatedPr
     public void Remove(Guid scheduleId)
     {
         using var session = OpenSession();
-        foreach (var prefix in new[] { "wake", "warning", "power", "followup" })
+        foreach (var prefix in new[] { "wake", "warning", "power", "followup", "shutdown-fallback" })
         {
             TryDeleteTask(session.Folder, $"{prefix}-{scheduleId:D}");
         }
 
         DeleteTasksWithPrefix(session.Folder, $"elevated-{scheduleId:D}-");
     }
+
+    public void RegisterShutdownFallback(Guid scheduleId, DateTime localTime)
+    {
+        using (var session = OpenSession())
+        {
+            TryDeleteTask(session.Folder, ShutdownFallbackTaskName(scheduleId));
+        }
+
+        RegisterTimeTask(
+            ShutdownFallbackTaskName(scheduleId),
+            localTime,
+            _layout.HelperPath,
+            $"force-shutdown --schedule {scheduleId:D}",
+            runAsSystem: true,
+            wakeToRun: false,
+            "정상 종료가 30초 안에 완료되지 않은 경우 실행하는 강제 종료 fallback");
+        _logger.Information("task.shutdown-fallback-registered", $"schedule={scheduleId:D};time={localTime:O}");
+    }
+
+    internal static string ShutdownFallbackTaskName(Guid scheduleId) =>
+        $"shutdown-fallback-{scheduleId:D}";
 
     public void RunElevatedFollowUp(Guid scheduleId, Guid programId)
     {

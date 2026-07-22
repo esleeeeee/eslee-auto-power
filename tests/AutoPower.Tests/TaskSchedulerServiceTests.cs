@@ -50,6 +50,18 @@ public sealed class TaskSchedulerServiceTests
     }
 
     [TestMethod]
+    public void ShutdownFallbackTaskKeepsScheduleIdentity()
+    {
+        var scheduleId = Guid.NewGuid();
+
+        var taskName = TaskSchedulerService.ShutdownFallbackTaskName(scheduleId);
+
+        Assert.AreEqual($"shutdown-fallback-{scheduleId:D}", taskName);
+        Assert.IsTrue(IntegrityReconciler.TryGetScheduleIdFromOwnedTaskName(taskName, out var parsed));
+        Assert.AreEqual(scheduleId, parsed);
+    }
+
+    [TestMethod]
     public void ElevatedProgramUsesPreauthorizedTaskInsteadOfStartingDirectly()
     {
         var directory = Path.Combine(Path.GetTempPath(), "AutoPowerTests", Guid.NewGuid().ToString("N"));

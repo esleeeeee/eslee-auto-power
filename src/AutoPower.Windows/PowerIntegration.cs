@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Management;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -191,8 +192,21 @@ public interface IPowerActionExecutor
     Task ExecuteAsync(PowerActionType action, CancellationToken cancellationToken = default);
 }
 
+public interface IShutdownController
+{
+    Task StartGracefulShutdownAsync(CancellationToken cancellationToken = default);
+    Task ForceShutdownAsync(CancellationToken cancellationToken = default);
+}
+
 public sealed class PowerActionExecutor : IPowerActionExecutor
 {
+    private readonly IShutdownController _shutdown;
+
+    public PowerActionExecutor(IShutdownController? shutdown = null)
+    {
+        _shutdown = shutdown ?? new WindowsShutdownController();
+    }
+
     public Task ExecuteAsync(PowerActionType action, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -212,9 +226,10 @@ public sealed class PowerActionExecutor : IPowerActionExecutor
                 }
 
                 break;
-            case PowerActionType.PowerOn:
             case PowerActionType.Shutdown:
-                throw new InvalidOperationException("이 전원 동작은 현재 제품에서 제공하지 않습니다.");
+                return _shutdown.StartGracefulShutdownAsync(cancellationToken);
+            case PowerActionType.PowerOn:
+                throw new InvalidOperationException("앱 기반 완전 종료 자동 부팅은 현재 제품에서 제공하지 않습니다.");
             case PowerActionType.WakeFromSleep:
             case PowerActionType.WakeFromHibernate:
                 throw new InvalidOperationException("예약 깨우기는 직접 실행하는 전원 동작이 아닙니다. 준비 흐름에서 S3/S4 상태로 전환해야 합니다.");
@@ -228,6 +243,43 @@ public sealed class PowerActionExecutor : IPowerActionExecutor
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
 
+}
+
+public sealed class WindowsShutdownController : IShutdownController
+{
+    public Task StartGracefulShutdownAsync(CancellationToken cancellationToken = default) =>
+        RunShutdownAsync(force: false, cancellationToken);
+
+    public Task ForceShutdownAsync(CancellationToken cancellationToken = default) =>
+        RunShutdownAsync(force: true, cancellationToken);
+
+    internal static IReadOnlyList<string> CreateArguments(bool force) => force
+        ? ["/s", "/f", "/t", "0", "/d", "p:0:0", "/c", "eslee Auto Power 강제 종료 fallback"]
+        : ["/s", "/soft", "/t", "0", "/d", "p:0:0", "/c", "eslee Auto Power 예약 완전 종료"];
+
+    private static async Task RunShutdownAsync(bool force, CancellationToken cancellationToken)
+    {
+        var executable = Path.Combine(Environment.SystemDirectory, "shutdown.exe");
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = executable,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden
+        };
+        foreach (var argument in CreateArguments(force))
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(startInfo)
+                            ?? throw new InvalidOperationException("Windows 완전 종료 명령을 시작하지 못했습니다.");
+        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        if (process.ExitCode != 0)
+        {
+            throw new Win32Exception(process.ExitCode, $"Windows {(force ? "강제" : "정상")} 종료 명령이 실패했습니다.");
+        }
+    }
 }
 
 public enum SleepWakeTestTarget

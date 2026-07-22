@@ -15,14 +15,14 @@ public sealed class ScheduleValidator
         var now = DateTime.SpecifyKind(nowLocal, DateTimeKind.Unspecified);
         if (planned <= now)
         {
-            issues.Add(new("past", "현재보다 이후의 날짜와 시간을 선택하세요."));
+            issues.Add(new("past", "예약 시각은 현재보다 이후여야 합니다."));
         }
 
         if (PowerSchedulePolicy.IsRemovedSchedule(schedule.ActionType) && schedule.IsEnabled)
         {
             issues.Add(new(
                 "removed-power-action",
-                "이전 버전에서 제거된 전원 예약은 더 이상 사용할 수 없습니다. 자동 시작, 절전 또는 최대 절전을 선택하세요."));
+                "이전 버전의 앱 기반 완전 종료 자동 부팅 예약은 더 이상 사용할 수 없습니다. 자동 시작, 완전 종료, 최대 절전 또는 절전을 선택하세요."));
         }
 
         if (!PowerSchedulePolicy.IsWakeSchedule(schedule.ActionType) &&

@@ -14,22 +14,26 @@ public partial class ScheduleEditorWindow : Window
     private readonly PowerSchedule? _existing;
     private readonly PowerCapabilitySnapshot _capability;
     private readonly Dictionary<string, CompatibilityResult> _compatibility;
+    private readonly IReadOnlyList<PowerSchedule> _schedules;
 
     public ScheduleEditorWindow(
         PowerSchedule? existing,
         PowerCapabilitySnapshot capability,
-        IReadOnlyList<CompatibilityResult> compatibility)
+        IReadOnlyList<CompatibilityResult> compatibility,
+        IReadOnlyList<PowerSchedule> schedules)
     {
         InitializeComponent();
         _existing = existing;
         _capability = capability;
         _compatibility = compatibility.ToDictionary(item => item.Capability, StringComparer.Ordinal);
+        _schedules = schedules;
         DataContext = this;
         DateInput.DisplayDateStart = DateTime.Today;
 
         ActionInput.ItemsSource = new[]
         {
             new ActionOption(AppText.T("자동 시작 예약"), EditorAction.AutomaticStart),
+            new ActionOption(AppText.T("예약 시각에 완전 종료"), EditorAction.Shutdown),
             new ActionOption(AppText.T("예약 시각에 최대 절전 진입"), EditorAction.Hibernate),
             new ActionOption(AppText.T("예약 시각에 절전 진입"), EditorAction.Sleep)
         };
@@ -42,8 +46,7 @@ public partial class ScheduleEditorWindow : Window
 
         if (existing is null)
         {
-            DateInput.SelectedDate = DateTime.Today.AddDays(1);
-            TimeInput.Text = "16:00";
+            SetPlannedTime(ScheduleTimePolicy.NewScheduleDefault(DateTime.Now));
             ActionInput.SelectedValue = EditorAction.AutomaticStart;
             WakeModeInput.SelectedValue = WakeModePreference.Automatic;
             OneTimeAutoLogonCheck.IsChecked = true;
@@ -89,12 +92,29 @@ public partial class ScheduleEditorWindow : Window
         }
 
         var automaticStart = action == EditorAction.AutomaticStart;
+        var shutdown = action == EditorAction.Shutdown;
         WakeOptions.Visibility = automaticStart ? Visibility.Visible : Visibility.Collapsed;
         PowerOffNotice.Visibility = automaticStart ? Visibility.Collapsed : Visibility.Visible;
+        ShutdownShortcuts.Visibility = shutdown ? Visibility.Visible : Visibility.Collapsed;
+        PowerOffNoticeText.Text = AppText.T(shutdown
+            ? "완전 종료 예약은 정확히 5분 전에 경고합니다. 완전히 종료된 PC는 앱의 자동 시작 예약으로 다시 켤 수 없습니다."
+            : "예약한 절전 또는 최대 절전 동작은 정확히 5분 전에 경고합니다. 저장하지 않은 작업이 없도록 미리 확인하세요.");
         if (automaticStart)
         {
             UpdateWakeModeNotice();
         }
+    }
+
+    private void ShutdownAfterOneHour_Click(object sender, RoutedEventArgs e) =>
+        SetPlannedTime(ScheduleTimePolicy.QuickShutdown(DateTime.Now, 1));
+
+    private void ShutdownAfterTwoHours_Click(object sender, RoutedEventArgs e) =>
+        SetPlannedTime(ScheduleTimePolicy.QuickShutdown(DateTime.Now, 2));
+
+    private void SetPlannedTime(DateTime planned)
+    {
+        DateInput.SelectedDate = planned.Date;
+        TimeInput.Text = planned.ToString("HH:mm", CultureInfo.InvariantCulture);
     }
 
     private void UpdateWakeModeNotice()
@@ -184,6 +204,7 @@ public partial class ScheduleEditorWindow : Window
             {
                 EditorAction.Hibernate => PowerActionType.Hibernate,
                 EditorAction.Sleep => PowerActionType.Sleep,
+                EditorAction.Shutdown => PowerActionType.Shutdown,
                 _ => throw new InvalidOperationException("지원하지 않는 예약 동작입니다.")
             };
         }
@@ -198,7 +219,7 @@ public partial class ScheduleEditorWindow : Window
                 item.RunElevated,
                 index)).ToArray()
             : [];
-        ResultSchedule = new PowerSchedule(
+        var candidate = new PowerSchedule(
             id,
             planned,
             action,
@@ -208,6 +229,41 @@ public partial class ScheduleEditorWindow : Window
             now,
             _existing?.Status is ScheduleStatus.Disabled ? ScheduleStatus.Disabled : ScheduleStatus.Pending,
             programs);
+        var validation = ScheduleValidator.Validate(candidate, DateTime.Now, _schedules);
+        if (!validation.IsValid)
+        {
+            MessageBox.Show(
+                string.Join(Environment.NewLine, validation.Issues.Select(issue => "• " + AppText.T(issue.Message))),
+                "예약을 저장할 수 없습니다",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        if (action == PowerActionType.Shutdown)
+        {
+            var nextWake = ScheduleValidator.SelectNextWake(
+                _schedules.Where(schedule => schedule.Id != _existing?.Id),
+                planned);
+            var warning = nextWake is null
+                ? AppText.IsEnglish
+                    ? "After a full shutdown, this app cannot turn the PC back on for a scheduled wake. To use scheduled wake later, leave the PC in sleep or hibernation instead.\n\nSave this full-shutdown schedule anyway?"
+                    : "완전히 종료된 PC는 앱의 자동 시작 예약으로 다시 켤 수 없습니다. 이후 자동 시작을 사용하려면 PC를 절전 또는 최대 절전 상태로 두어야 합니다.\n\n그래도 완전 종료 예약을 저장하시겠습니까?"
+                : AppText.IsEnglish
+                    ? $"A scheduled wake exists at {nextWake.ScheduledLocalDateTime:MMM dd HH:mm}. A full shutdown prevents that wake from turning the PC back on. Hibernation is recommended for a long wait, and sleep for a short wait.\n\nSave this full-shutdown schedule anyway?"
+                    : $"{nextWake.ScheduledLocalDateTime:MM월 dd일 HH:mm}에 다음 자동 시작 예약이 있습니다. PC를 완전히 종료하면 해당 시각에 자동으로 다시 시작할 수 없습니다. 장시간 대기는 최대 절전, 짧은 대기는 절전을 권장합니다.\n\n그래도 완전 종료 예약을 저장하시겠습니까?";
+            if (MessageBox.Show(
+                    warning,
+                    AppText.T("완전 종료 예약 확인"),
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning,
+                    MessageBoxResult.No) != MessageBoxResult.Yes)
+            {
+                return;
+            }
+        }
+
+        ResultSchedule = candidate;
         DialogResult = true;
     }
 
@@ -232,7 +288,8 @@ public partial class ScheduleEditorWindow : Window
 
     private static EditorAction ToEditorAction(PowerActionType action) => action switch
     {
-        PowerActionType.PowerOn or PowerActionType.Shutdown or PowerActionType.WakeFromSleep or PowerActionType.WakeFromHibernate => EditorAction.AutomaticStart,
+        PowerActionType.PowerOn or PowerActionType.WakeFromSleep or PowerActionType.WakeFromHibernate => EditorAction.AutomaticStart,
+        PowerActionType.Shutdown => EditorAction.Shutdown,
         PowerActionType.Hibernate => EditorAction.Hibernate,
         PowerActionType.Sleep => EditorAction.Sleep,
         _ => throw new ArgumentOutOfRangeException(nameof(action))
@@ -241,6 +298,7 @@ public partial class ScheduleEditorWindow : Window
     private enum EditorAction
     {
         AutomaticStart,
+        Shutdown,
         Hibernate,
         Sleep
     }

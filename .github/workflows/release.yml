@@ -9,7 +9,7 @@ on:
       version:
         description: Release version without the v prefix
         required: true
-        default: 1.0.0
+        default: 1.0.1
 
 permissions:
   contents: write
@@ -50,7 +50,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: eslee Auto Power v${{ steps.version.outputs.version }}
-          body_path: .github/release-notes/v1.0.0.md
+          body_path: .github/release-notes/v${{ steps.version.outputs.version }}.md
           files: |
             artifacts/installer/eslee-auto-power-v${{ steps.version.outputs.version }}-ko-setup.exe
             artifacts/installer/eslee-auto-power-v${{ steps.version.outputs.version }}-ko-setup.exe.sha256

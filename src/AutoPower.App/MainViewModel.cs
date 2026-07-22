@@ -80,6 +80,33 @@ public sealed class MainViewModel : INotifyPropertyChanged
             Compatibility.Add(new CompatibilityRow(item));
         }
 
+        bool? credentialsRegistered;
+        try
+        {
+            credentialsRegistered = AppServices.Credentials.Exists();
+        }
+        catch (Exception error)
+        {
+            credentialsRegistered = null;
+            AppServices.Logger.Error("credential.compatibility-status-failed", error);
+        }
+
+        Compatibility.Add(new CompatibilityRow(new CompatibilityResult(
+            CompatibilityCapabilities.OneTimeAutoLogon,
+            credentialsRegistered switch
+            {
+                true => CapabilityStatus.Confirmed,
+                false => CapabilityStatus.NeedsPhysicalTest,
+                null => CapabilityStatus.Unknown
+            },
+            DateTimeOffset.UtcNow,
+            credentialsRegistered switch
+            {
+                true => "설정에 저장된 Windows 계정이 실제 로그온 API 검증을 통과했습니다.",
+                false => "설정에서 Windows 계정 암호를 저장·검증한 뒤 저장된 로그인 테스트로 확인할 수 있습니다.",
+                null => "Windows 보호 저장소의 자동 로그인 등록 상태를 확인하지 못했습니다. 진단 로그를 확인하세요."
+            })));
+
         var journal = new AutoPower.Windows.JsonAutologonJournalStore().Read();
         var resumeJournal = new AutoPower.Windows.JsonResumeSignInJournalStore().Read();
         SecurityWarning = resumeJournal is not null && resumeJournal.State != AutoPower.Windows.ResumeSignInJournalState.Restored
@@ -111,6 +138,7 @@ public sealed record ScheduleRow(PowerSchedule Schedule)
     {
         PowerActionType.WakeFromSleep => "자동 시작 (S3)",
         PowerActionType.WakeFromHibernate => "자동 시작 (S4)",
+        PowerActionType.Shutdown => "완전 종료",
         PowerActionType.Hibernate => "최대 절전",
         PowerActionType.Sleep => "절전",
         _ => "이전 전원 동작"
@@ -145,14 +173,21 @@ public sealed record CompatibilityRow(CompatibilityResult Result)
     {
         CompatibilityCapabilities.S3Wake => "절전(S3) 후 자동 깨우기",
         CompatibilityCapabilities.S4Wake => "최대 절전(S4) 후 자동 깨우기",
+        CompatibilityCapabilities.OneTimeAutoLogon => "앱 관리형 1회 자동 로그인",
         _ => Result.Capability
     });
-    public string StatusText => AppText.T(Result.Status switch
-    {
-        CapabilityStatus.Confirmed => "지원 확인됨",
-        CapabilityStatus.NeedsPhysicalTest => "지원 가능성 있음 / 실제 테스트 필요",
-        CapabilityStatus.UnsupportedOrFailed => "미지원 또는 테스트 실패",
-        _ => "확인 불가"
-    });
+    public string StatusText => AppText.T(Result.Capability == CompatibilityCapabilities.OneTimeAutoLogon
+        ? Result.Status == CapabilityStatus.Confirmed
+            ? "사용 가능 / 검증 완료"
+            : Result.Status == CapabilityStatus.Unknown
+                ? "상태 확인 실패"
+                : "설정 필요 / 검증 전"
+        : Result.Status switch
+        {
+            CapabilityStatus.Confirmed => "지원 확인됨",
+            CapabilityStatus.NeedsPhysicalTest => "지원 가능성 있음 / 실제 테스트 필요",
+            CapabilityStatus.UnsupportedOrFailed => "미지원 또는 테스트 실패",
+            _ => "확인 불가"
+        });
     public string DetailText => AppText.T(Result.Detail);
 }

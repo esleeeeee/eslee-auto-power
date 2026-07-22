@@ -23,7 +23,7 @@ public static class PowerSchedulePolicy
         action is PowerActionType.WakeFromSleep or PowerActionType.WakeFromHibernate;
 
     public static bool IsRemovedSchedule(PowerActionType action) =>
-        action is PowerActionType.PowerOn or PowerActionType.Shutdown;
+        action == PowerActionType.PowerOn;
 
     public static bool IsLowPowerEntry(PowerActionType action) =>
         action is PowerActionType.Sleep or PowerActionType.Hibernate;
@@ -102,6 +102,26 @@ public static class CompatibilityCapabilities
 {
     public const string S3Wake = "S3Wake";
     public const string S4Wake = "S4Wake";
+    public const string OneTimeAutoLogon = "OneTimeAutoLogon";
+}
+
+public static class ScheduleTimePolicy
+{
+    public static DateTime NewScheduleDefault(DateTime openedAtLocal) =>
+        NormalizeToMinute(openedAtLocal);
+
+    public static DateTime QuickShutdown(DateTime clickedAtLocal, int hours)
+    {
+        if (hours is not (1 or 2))
+        {
+            throw new ArgumentOutOfRangeException(nameof(hours), "빠른 완전 종료 예약은 1시간 또는 2시간만 지원합니다.");
+        }
+
+        return NormalizeToMinute(clickedAtLocal.AddHours(hours));
+    }
+
+    private static DateTime NormalizeToMinute(DateTime value) =>
+        new(value.Year, value.Month, value.Day, value.Hour, value.Minute, 0, DateTimeKind.Unspecified);
 }
 
 public enum PendingOperationType

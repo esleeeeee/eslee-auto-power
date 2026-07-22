@@ -245,7 +245,15 @@ internal static class HelperProgram
                     }
 
                     ValidateScheduledInvocation(schedule, schedule.ActionType);
-                    await EnsureNextWakeAsync(store, registrar, id).ConfigureAwait(false);
+                    if (schedule.ActionType == PowerActionType.Shutdown)
+                    {
+                        await RecordShutdownWakeConflictAsync(store, schedule).ConfigureAwait(false);
+                        registrar.RegisterShutdownFallback(id, DateTime.Now + WarningPolicy.ShutdownGracePeriod);
+                    }
+                    else
+                    {
+                        await EnsureNextWakeAsync(store, registrar, id).ConfigureAwait(false);
+                    }
                     await store.AddHistoryAsync(id, "PowerAction", ResultKind.Information, schedule.ScheduledLocalDateTime,
                         $"{KoreanAction(schedule.ActionType)} 동작을 시작했습니다.").ConfigureAwait(false);
                     await store.UpdateScheduleStateAsync(id, false, ScheduleStatus.Completed).ConfigureAwait(false);
@@ -255,6 +263,11 @@ internal static class HelperProgram
                     }
                     catch
                     {
+                        if (schedule.ActionType == PowerActionType.Shutdown)
+                        {
+                            registrar.Remove(id);
+                        }
+
                         await store.UpdateScheduleStateAsync(id, false, ScheduleStatus.Failed).ConfigureAwait(false);
                         throw;
                     }
@@ -272,7 +285,16 @@ internal static class HelperProgram
                         throw new InvalidOperationException("5분 전 경고가 열린 활성 전원 예약만 지금 실행할 수 있습니다.");
                     }
 
-                    await EnsureNextWakeAsync(store, registrar, id).ConfigureAwait(false);
+                    registrar.Remove(id);
+                    if (schedule.ActionType == PowerActionType.Shutdown)
+                    {
+                        await RecordShutdownWakeConflictAsync(store, schedule).ConfigureAwait(false);
+                        registrar.RegisterShutdownFallback(id, DateTime.Now + WarningPolicy.ShutdownGracePeriod);
+                    }
+                    else
+                    {
+                        await EnsureNextWakeAsync(store, registrar, id).ConfigureAwait(false);
+                    }
                     await store.UpdateScheduleStateAsync(id, false, ScheduleStatus.Completed).ConfigureAwait(false);
                     await store.AddHistoryAsync(id, "PowerAction", ResultKind.Information, schedule.ScheduledLocalDateTime,
                         $"사용자 선택으로 {KoreanAction(schedule.ActionType)} 동작을 지금 시작했습니다.").ConfigureAwait(false);
@@ -282,10 +304,29 @@ internal static class HelperProgram
                     }
                     catch
                     {
+                        if (schedule.ActionType == PowerActionType.Shutdown)
+                        {
+                            registrar.Remove(id);
+                        }
+
                         await store.UpdateScheduleStateAsync(id, false, ScheduleStatus.Failed).ConfigureAwait(false);
                         throw;
                     }
 
+                    return 0;
+                }
+                case "force-shutdown":
+                {
+                    var id = RequiredScheduleId(args);
+                    var schedule = await RequiredScheduleAsync(store, id).ConfigureAwait(false);
+                    if (!WarningPolicy.CanRunShutdownFallback(schedule, DateTime.Now))
+                    {
+                        throw new InvalidOperationException("완료 처리된 직전 완전 종료 예약의 30초 fallback만 실행할 수 있습니다.");
+                    }
+                    await store.AddHistoryAsync(id, "ShutdownForcedFallback", ResultKind.Warning,
+                        schedule.ScheduledLocalDateTime,
+                        "정상 종료가 30초 안에 완료되지 않아 강제 종료 fallback을 실행했습니다.").ConfigureAwait(false);
+                    await new WindowsShutdownController().ForceShutdownAsync().ConfigureAwait(false);
                     return 0;
                 }
                 case "skip-schedule":
@@ -521,6 +562,25 @@ internal static class HelperProgram
         }
     }
 
+    private static async Task RecordShutdownWakeConflictAsync(SqliteStore store, PowerSchedule shutdown)
+    {
+        var schedules = await store.GetAllSchedulesAsync().ConfigureAwait(false);
+        var nextWake = ScheduleValidator.SelectNextWake(
+            schedules.Where(schedule => schedule.Id != shutdown.Id),
+            shutdown.ScheduledLocalDateTime);
+        if (nextWake is null)
+        {
+            return;
+        }
+
+        await store.AddHistoryAsync(
+            shutdown.Id,
+            "ShutdownWakeWarning",
+            ResultKind.Warning,
+            shutdown.ScheduledLocalDateTime,
+            $"완전 종료 후 {nextWake.ScheduledLocalDateTime:yyyy.MM.dd HH:mm} 자동 시작 예약은 PC를 다시 켤 수 없습니다. 사용자가 완전 종료를 선택해 예약대로 진행합니다.").ConfigureAwait(false);
+    }
+
     private static Guid RequiredScheduleId(string[] args)
     {
         if (args.Length != 3 || !string.Equals(args[1], "--schedule", StringComparison.OrdinalIgnoreCase) || !Guid.TryParse(args[2], out var id))
@@ -611,6 +671,7 @@ internal static class HelperProgram
 
     private static string KoreanAction(PowerActionType action) => action switch
     {
+        PowerActionType.Shutdown => "완전 종료",
         PowerActionType.Hibernate => "최대 절전",
         PowerActionType.Sleep => "절전",
         PowerActionType.WakeFromSleep => "S3 절전 깨우기",

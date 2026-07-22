@@ -73,12 +73,25 @@ public sealed class PowerIntegrationTests
     }
 
     [TestMethod]
-    public void RemovedPowerActionsCannotReachTheNativeExecutor()
+    public async Task ShutdownUsesGracefulControllerWhileLegacyPowerOnRemainsBlocked()
     {
-        var executor = new PowerActionExecutor();
+        var shutdown = new FakeShutdownController();
+        var executor = new PowerActionExecutor(shutdown);
 
         Assert.ThrowsExactly<InvalidOperationException>(() => executor.ExecuteAsync(PowerActionType.PowerOn));
-        Assert.ThrowsExactly<InvalidOperationException>(() => executor.ExecuteAsync(PowerActionType.Shutdown));
+        await executor.ExecuteAsync(PowerActionType.Shutdown);
+        Assert.AreEqual(1, shutdown.GracefulCount);
+        Assert.AreEqual(0, shutdown.ForceCount);
+    }
+
+    [TestMethod]
+    public void ShutdownCommandsSeparateGracefulAndForcedFallback()
+    {
+        CollectionAssert.Contains(WindowsShutdownController.CreateArguments(force: false).ToArray(), "/soft");
+        CollectionAssert.DoesNotContain(WindowsShutdownController.CreateArguments(force: false).ToArray(), "/f");
+        CollectionAssert.Contains(WindowsShutdownController.CreateArguments(force: true).ToArray(), "/f");
+        CollectionAssert.DoesNotContain(WindowsShutdownController.CreateArguments(force: true).ToArray(), "/soft");
+        Assert.AreEqual(TimeSpan.FromSeconds(30), WarningPolicy.ShutdownGracePeriod);
     }
 
     [TestMethod]
@@ -184,4 +197,22 @@ public sealed class PowerIntegrationTests
 
     private static DateTimeOffset ToLocalOffset(DateTime local) =>
         new(local, TimeZoneInfo.Local.GetUtcOffset(local));
+
+    private sealed class FakeShutdownController : IShutdownController
+    {
+        public int GracefulCount { get; private set; }
+        public int ForceCount { get; private set; }
+
+        public Task StartGracefulShutdownAsync(CancellationToken cancellationToken = default)
+        {
+            GracefulCount++;
+            return Task.CompletedTask;
+        }
+
+        public Task ForceShutdownAsync(CancellationToken cancellationToken = default)
+        {
+            ForceCount++;
+            return Task.CompletedTask;
+        }
+    }
 }
