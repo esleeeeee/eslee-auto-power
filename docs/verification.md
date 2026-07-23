@@ -59,11 +59,11 @@
 - 게시본 FileVersion: `1.0.3.0`
 - 추적 파일 개인정보 패턴 검사: 사용자명·로컬 사용자 경로 없음
 
-## 로컬 설치 파일
+## GitHub 공식 릴리스 설치 파일
 
-- 한국어: `artifacts/installer/eslee-auto-power-v1.0.3-ko-setup.exe`
-  - SHA-256: `0AAC74FAB77466ABFAB07C99FD323022F1ADFE78F01679EEAAB8960ADF2F9FBC`
-- 영어: `artifacts/installer/eslee-auto-power-v1.0.3-en-setup.exe`
-  - SHA-256: `CC5C60CD16145DE8FF13F80FEE226118A64BECB96019350C0637EBF24E0F3803`
+- 한국어: `eslee-auto-power-v1.0.3-ko-setup.exe`
+  - SHA-256: `570FF7107EF993B9D487AADCBF63C1CCE7AF79332CE42DE5A09AEE7130AE10FC`
+- 영어: `eslee-auto-power-v1.0.3-en-setup.exe`
+  - SHA-256: `778CE271A7D7FD6DFF08CA239E3164CCE261BF81AB17241DCA7C8A5123D5DB42`
 
-GitHub Actions 정식 릴리스 뒤 공개 자산의 digest와 동봉된 `.sha256` 파일을 다시 대조하고 이 문서의 해시를 공식 자산 기준으로 갱신한다.
+GitHub Actions 공개 자산의 digest와 동봉된 `.sha256` 파일을 대조했으며 두 값이 일치한다.
