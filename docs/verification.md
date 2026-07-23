@@ -1,66 +1,69 @@
-# v1.0.2 검증 결과
+# v1.0.3 검증 결과
 
 검증일: 2026-07-23
 
-## 실제 장애 증거
+## 변경 범위
 
-- 운영 설치본: v1.0.0, 실행 파일 커밋 `04a4f5e`
-- 예약 ID: `829318b2-cc26-4cc5-b583-474815c20ea3`
-- DB: 2026-07-23 01:00 최대 절전, `PowerAction` 시작 기록 존재, 당시 성공·실패 확정 기록 없음
-- 기술 로그: 2026-07-22 22:50:41 예약 Task 등록 확인; 00:55~01:10 별도 Helper 오류 없음
-- Task Scheduler Operational 채널: 비활성 상태라 과거 `power-*` 실행 이벤트 없음
-- 실행 뒤 `power-*` Task: 이미 없어 XML, LastRunTime, LastTaskResult, NextRunTime 사후 조회 불가
-- 남은 경고 Task: LastRunTime 2026-07-23 00:55, LastTaskResult `0x00000000`, NextRunTime 없음
-- Windows Kernel-Power 187: 01:00:00 `AutoPower.Helper.exe`가 SetSuspendState 호출
-- Windows Kernel-Power 42: 01:00:03 `TargetState=5`, `EffectiveState=5`, Application API 사유로 S4 진입
-- Windows Power-Troubleshooter 1: SleepTime 01:00:00, WakeTime 06:35:17, TargetState/EffectiveState 5
-- 앱 프로세스 시작 시각: 전날 20:09. S4 동안 종료되지 않고 살아 있어 복귀 뒤 기존 트레이 창이 오래된 화면 컬렉션을 계속 표시함
+- 완전 종료에서만 보이던 빠른 예약을 최대 절전과 절전에도 표시
+- 세 전원 동작에서 공통 `1시간 뒤`, `2시간 뒤` 문구 사용
+- 자동 시작 예약에서는 빠른 전원 전환 UI 숨김
+- 버튼 클릭 시각의 로컬 날짜·시간만 갱신하고 기존 validation과 저장 경로 유지
+- 선택 동작에 따라 접근성 이름, 도움말과 툴팁을 동적으로 갱신
 
-원본 `%ProgramData%` DB, 현재 설치 파일과 실제 Task는 읽기 전용으로 조사했다. 복구 스모크 테스트는 운영 DB의 별도 복사본과 격리된 `ESLEE_AUTOPOWER_DATA_ROOT`에서만 수행했다.
+현재 설치본, `%ProgramData%` 운영 DB와 실제 Task Scheduler 예약은 변경하거나 덮어쓰지 않았다. 빌드, UI 자동화와 게시본 스모크 테스트는 모두 격리된 `ESLEE_AUTOPOWER_DATA_ROOT`를 사용했다.
 
-## 수정 검증
+## 정책 자동 테스트
 
-- `ExecutionStarted`, power-transition pending journal, `PendingPowerTransition`을 단일 SQLite 트랜잭션으로 저장
-- durable commit 뒤 `power-*` Task 소비, 이후에만 Sleep/Hibernate/Shutdown 호출
-- 정상 S3/S4 복귀 시 Windows 전원 이벤트 확인 후 `PowerTransitionCompleted`
-- Helper 중단 시 앱 시작/활성화 reconciliation으로 Completed, Failed, Missed, ResultUnknown 확정
-- legacy v1.0.0처럼 선행 Completed 처리된 예약도 실제 이벤트가 있어야 `PowerTransitionRecovered` 성공 기록 생성
-- `StartWhenAvailable=false`, `MultipleInstances=IgnoreNew`, EndBoundary=예약 시각+2분 확인
-- Resume 뒤 트레이 창 재활성화 시 DB·실행 기록 새로고침
+- 완전 종료·최대 절전·절전의 1시간 및 2시간 계산
+- 선택한 `PowerActionType` 유지
+- 자동 시작에 해당하는 S3/S4 Wake 타입은 빠른 전원 전환 대상에서 제외
+- 자정 넘김
+- 월말 및 연말 전환
+- 윤년 2월 29일 전환
+- 초와 밀리초를 0으로 정규화
+- 지원하지 않는 시간 간격 거부
+- 기존 전원 예약과 v1.0.2 durable reconciliation 회귀 테스트 유지
 
-운영 DB 복사본 스모크 결과:
+## 실제 WPF UI 자동화
 
-- 01:00 Helper 호출 + S4 진입 + 06:35 복귀를 모두 대조
-- ScheduleStatus `Completed`, IsEnabled `false` 유지
-- `PowerTransitionRecovered / Success` 생성
-- 원본 운영 DB에는 새 기록이나 상태 변경이 생기지 않음
+한국어와 영어 Debug 실제 창, 한국어와 영어 Release 게시본 기동을 격리된 데이터 폴더에서 확인했다.
 
-## 자동화 결과
+- 자동 시작 선택: 빠른 설정 버튼 숨김
+- 완전 종료 선택: 두 버튼 표시 및 `1시간 뒤` 계산
+- 최대 절전 선택: 두 버튼 표시, 선택 동작과 기존 날짜·시간 유지
+- 절전 선택: 두 버튼 표시 및 `2시간 뒤` 계산
+- 버튼 클릭 뒤 선택된 동작이 바뀌지 않음
+- 빠른 설정 뒤 DatePicker와 시간 입력이 read-only로 바뀌지 않음
+- 시간 값을 직접 수정할 수 있음
+- 선택 동작에 따라 버튼 접근성 이름이 달라짐
+- 기본 720×700 DIP 창에서 버튼, 설명, 하단 저장 버튼이 잘리지 않음
+- `WrapPanel`, 세로 `ScrollViewer`와 WPF DIP 레이아웃을 사용하므로 100%·125%·150%에서 동일한 논리 크기로 배치됨
+- 실제 Windows 125% 배율의 900×875 물리 픽셀 창에서 한국어·영어 캡처 확인
+
+캡처:
+
+- `artifacts/ui-v1.0.3-quick-power/quick-power-shutdown-1.0.3.png`
+- `artifacts/ui-v1.0.3-quick-power/quick-power-hibernate-1.0.3.png`
+- `artifacts/ui-v1.0.3-quick-power/quick-power-sleep-1.0.3.png`
+- `artifacts/ui-v1.0.3-quick-power-en/quick-power-hibernate-1.0.3-en.png`
+
+## 빌드와 검사
 
 - 한국어 Release 빌드: 경고 0, 오류 0
 - 영어 Release 빌드: 경고 0, 오류 0
-- 한국어 MSTest: 84/84 통과
-- 영어 MSTest: 84/84 통과
+- 한국어 MSTest: 92/92 통과
+- 영어 MSTest: 92/92 통과
 - NuGet 직접·전이 취약 패키지: 0건
-- 게시본 ProductVersion/FileVersion: 1.0.2 / 1.0.2.0
+- 한국어·영어 self-contained 게시본: 창 표시 및 응답 상태 정상
+- 게시본 ProductVersion: `1.0.3+f195dc4c6e63d41084c193b8e173226255781f61`
+- 게시본 FileVersion: `1.0.3.0`
+- 추적 파일 개인정보 패턴 검사: 사용자명·로컬 사용자 경로 없음
 
-추가된 주요 시나리오:
+## 로컬 설치 파일
 
-- 최대 절전 호출 직전 프로세스 중단
-- 최대 절전 후 복귀
-- 복귀 전에 앱이 종료되고 다음 앱 시작에서 복구
-- 실행된 예약의 미래 목록 제거와 실행 기록 생성
-- 과거 예약 지연 실행 차단
-- Task 실행/결과 기록 누락 조합
-- Task 자체 미실행
-- 동일 예약 중복 실행 및 중복 terminal history 방지
-- Windows 증거 접근 실패 시 상태를 임의로 덮어쓰지 않음
+- 한국어: `artifacts/installer/eslee-auto-power-v1.0.3-ko-setup.exe`
+  - SHA-256: `0AAC74FAB77466ABFAB07C99FD323022F1ADFE78F01679EEAAB8960ADF2F9FBC`
+- 영어: `artifacts/installer/eslee-auto-power-v1.0.3-en-setup.exe`
+  - SHA-256: `CC5C60CD16145DE8FF13F80FEE226118A64BECB96019350C0637EBF24E0F3803`
 
-## 설치 파일
-
-- 한국어: `artifacts/installer/eslee-auto-power-v1.0.2-ko-setup.exe`
-  - SHA-256: `26A040EDA3D84C1F8B521FA7DDD50EA97B666562B7119E0AABF77CB87DAEC479`
-- 영어: `artifacts/installer/eslee-auto-power-v1.0.2-en-setup.exe`
-  - SHA-256: `7488C48DC51B71FF7D9845ECA6C4ED1B04EB138961E2759097BE8268F5A8A5DD`
-
-실제 PC를 다시 절전·최대 절전·완전 종료시키는 파괴적 통합 테스트와 현재 설치본 덮어쓰기는 수행하지 않았다. 실제 당일 S4 이벤트와 운영 DB 복사본으로 recovery 판정을 검증했다.
+GitHub Actions 정식 릴리스 뒤 공개 자산의 digest와 동봉된 `.sha256` 파일을 다시 대조하고 이 문서의 해시를 공식 자산 기준으로 갱신한다.
