@@ -92,24 +92,64 @@ public partial class ScheduleEditorWindow : Window
         }
 
         var automaticStart = action == EditorAction.AutomaticStart;
-        var shutdown = action == EditorAction.Shutdown;
+        var powerAction = ToPowerTransitionAction(action);
+        var shutdown = powerAction == PowerActionType.Shutdown;
         WakeOptions.Visibility = automaticStart ? Visibility.Visible : Visibility.Collapsed;
         PowerOffNotice.Visibility = automaticStart ? Visibility.Collapsed : Visibility.Visible;
-        ShutdownShortcuts.Visibility = shutdown ? Visibility.Visible : Visibility.Collapsed;
+        PowerShortcuts.Visibility = powerAction is null ? Visibility.Collapsed : Visibility.Visible;
         PowerOffNoticeText.Text = AppText.T(shutdown
             ? "완전 종료 예약은 정확히 5분 전에 경고합니다. 완전히 종료된 PC는 앱의 자동 시작 예약으로 다시 켤 수 없습니다."
             : "예약한 절전 또는 최대 절전 동작은 정확히 5분 전에 경고합니다. 저장하지 않은 작업이 없도록 미리 확인하세요.");
+        if (powerAction is not null)
+        {
+            UpdateQuickPowerAccessibility(powerAction.Value);
+        }
+
         if (automaticStart)
         {
             UpdateWakeModeNotice();
         }
     }
 
-    private void ShutdownAfterOneHour_Click(object sender, RoutedEventArgs e) =>
-        SetPlannedTime(ScheduleTimePolicy.QuickShutdown(DateTime.Now, 1));
+    private void PowerAfterOneHour_Click(object sender, RoutedEventArgs e) =>
+        SetQuickPowerTime(1);
 
-    private void ShutdownAfterTwoHours_Click(object sender, RoutedEventArgs e) =>
-        SetPlannedTime(ScheduleTimePolicy.QuickShutdown(DateTime.Now, 2));
+    private void PowerAfterTwoHours_Click(object sender, RoutedEventArgs e) =>
+        SetQuickPowerTime(2);
+
+    private void SetQuickPowerTime(int hours)
+    {
+        if (ActionInput.SelectedValue is not EditorAction action ||
+            ToPowerTransitionAction(action) is null)
+        {
+            return;
+        }
+
+        SetPlannedTime(ScheduleTimePolicy.QuickPowerTransition(DateTime.Now, hours));
+    }
+
+    private void UpdateQuickPowerAccessibility(PowerActionType action)
+    {
+        var actionName = AppText.T(action switch
+        {
+            PowerActionType.Shutdown => "완전 종료",
+            PowerActionType.Hibernate => "최대 절전",
+            PowerActionType.Sleep => "절전",
+            _ => throw new ArgumentOutOfRangeException(nameof(action))
+        });
+        SetQuickPowerAccessibility(PowerAfterOneHourButton, actionName, 1);
+        SetQuickPowerAccessibility(PowerAfterTwoHoursButton, actionName, 2);
+    }
+
+    private static void SetQuickPowerAccessibility(System.Windows.Controls.Button button, string actionName, int hours)
+    {
+        var description = AppText.IsEnglish
+            ? $"Schedule {actionName.ToLowerInvariant()} for {hours} hour{(hours == 1 ? string.Empty : "s")} from the current local time."
+            : $"현재 로컬 시각에서 {hours}시간 뒤에 {actionName} 예약";
+        button.ToolTip = description;
+        System.Windows.Automation.AutomationProperties.SetName(button, description);
+        System.Windows.Automation.AutomationProperties.SetHelpText(button, description);
+    }
 
     private void SetPlannedTime(DateTime planned)
     {
@@ -200,13 +240,8 @@ public partial class ScheduleEditorWindow : Window
         }
         else
         {
-            action = editorAction switch
-            {
-                EditorAction.Hibernate => PowerActionType.Hibernate,
-                EditorAction.Sleep => PowerActionType.Sleep,
-                EditorAction.Shutdown => PowerActionType.Shutdown,
-                _ => throw new InvalidOperationException("지원하지 않는 예약 동작입니다.")
-            };
+            action = ToPowerTransitionAction(editorAction)
+                     ?? throw new InvalidOperationException("지원하지 않는 예약 동작입니다.");
         }
 
         var planned = DateTime.SpecifyKind(date.Date + time, DateTimeKind.Unspecified);
@@ -292,6 +327,15 @@ public partial class ScheduleEditorWindow : Window
         PowerActionType.Shutdown => EditorAction.Shutdown,
         PowerActionType.Hibernate => EditorAction.Hibernate,
         PowerActionType.Sleep => EditorAction.Sleep,
+        _ => throw new ArgumentOutOfRangeException(nameof(action))
+    };
+
+    private static PowerActionType? ToPowerTransitionAction(EditorAction action) => action switch
+    {
+        EditorAction.Shutdown => PowerActionType.Shutdown,
+        EditorAction.Hibernate => PowerActionType.Hibernate,
+        EditorAction.Sleep => PowerActionType.Sleep,
+        EditorAction.AutomaticStart => null,
         _ => throw new ArgumentOutOfRangeException(nameof(action))
     };
 

@@ -5,7 +5,7 @@ param(
     [string]$DataRoot,
     [Parameter(Mandatory)]
     [string]$OutputDirectory,
-    [string]$Version = '1.0.2',
+    [string]$Version = '1.0.3',
     [ValidateSet('schedule', 'main', 'settings', 'program', 'about')]
     [string]$View = 'schedule'
 )
@@ -114,6 +114,48 @@ function Find-ByName(
     return $Root.FindFirst([Windows.Automation.TreeScope]::Descendants, $condition)
 }
 
+function Test-ElementVisible([Windows.Automation.AutomationElement]$Element) {
+    if ($null -eq $Element) {
+        return $false
+    }
+
+    $bounds = $Element.Current.BoundingRectangle
+    return -not $Element.Current.IsOffscreen -and $bounds.Width -gt 0 -and $bounds.Height -gt 0
+}
+
+function Select-Action(
+    [Windows.Automation.AutomationElement]$ActionInput,
+    [int]$Index) {
+    $ActionInput.SetFocus()
+    [Windows.Forms.SendKeys]::SendWait('{HOME}')
+    for ($step = 0; $step -lt $Index; $step++) {
+        [Windows.Forms.SendKeys]::SendWait('{DOWN}')
+    }
+    [Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    Start-Sleep -Milliseconds 500
+}
+
+function Get-SelectedActionName([Windows.Automation.AutomationElement]$ActionInput) {
+    $selection = $ActionInput.GetCurrentPattern([Windows.Automation.SelectionPattern]::Pattern).Current.GetSelection()
+    if ($selection.Count -ne 1) {
+        throw "Expected one selected action, found $($selection.Count)."
+    }
+    return $selection[0].Current.Name
+}
+
+function Assert-QuickPowerVisibility(
+    [Windows.Automation.AutomationElement]$Root,
+    [bool]$ExpectedVisible,
+    [string]$Context) {
+    $oneHour = Find-ByAutomationId $Root 'PowerAfterOneHourButton'
+    $twoHours = Find-ByAutomationId $Root 'PowerAfterTwoHoursButton'
+    $actual = (Test-ElementVisible $oneHour) -and (Test-ElementVisible $twoHours)
+    if ($actual -ne $ExpectedVisible) {
+        throw "Quick power visibility for $Context was $actual; expected $ExpectedVisible."
+    }
+    return @($oneHour, $twoHours)
+}
+
 function Get-ProcessWindow([int]$ProcessId) {
     $processCondition = [Windows.Automation.PropertyCondition]::new(
         [Windows.Automation.AutomationElement]::ProcessIdProperty,
@@ -214,36 +256,93 @@ try {
     if ($null -eq $actionInput) {
         throw 'ActionInput was not found.'
     }
+    Assert-QuickPowerVisibility $root $false 'automatic start' | Out-Null
+
     $actionInput.GetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern).Expand()
     Start-Sleep -Milliseconds 600
     Save-WindowScreen $handle (Join-Path $OutputDirectory "unified-auto-start-actions-$Version.png")
 
-    $actionInput.SetFocus()
-    [Windows.Forms.SendKeys]::SendWait('{DOWN}{ENTER}')
-    Start-Sleep -Seconds 1
-
-    $oneHour = Find-ByAutomationId $root 'ShutdownAfterOneHourButton'
-    $twoHours = Find-ByAutomationId $root 'ShutdownAfterTwoHoursButton'
-    if ($null -eq $oneHour -or $null -eq $twoHours) {
-        throw 'The one-hour or two-hour shutdown shortcut was not found.'
+    Select-Action $actionInput 1
+    $shutdownButtons = Assert-QuickPowerVisibility $root $true 'full shutdown'
+    $shutdownName = Get-SelectedActionName $actionInput
+    $shutdownAccessibilityName = $shutdownButtons[0].Current.Name
+    if ([string]::IsNullOrWhiteSpace($shutdownAccessibilityName) -or $shutdownAccessibilityName -notmatch '1') {
+        throw "The one-hour accessibility name is not descriptive: '$shutdownAccessibilityName'."
     }
-    Save-WindowPrint $handle (Join-Path $OutputDirectory "shutdown-shortcuts-$Version.png")
+    Save-WindowPrint $handle (Join-Path $OutputDirectory "quick-power-shutdown-$Version.png")
 
-    $oneHour.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $beforeQuickClick = [DateTime]::Now
+    $shutdownButtons[0].GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
     Start-Sleep -Milliseconds 300
+    $afterQuickClick = [DateTime]::Now
     $timeInput = Find-ByAutomationId $root 'TimeInput'
+    $dateInput = Find-ByAutomationId $root 'DateInput'
     if ($null -eq $timeInput) {
-        throw 'TimeInput was not found after using the quick shutdown shortcut.'
+        throw 'TimeInput was not found after using the quick power shortcut.'
+    }
+    if ($null -eq $dateInput) {
+        throw 'DateInput was not found after using the quick power shortcut.'
+    }
+    if ((Get-SelectedActionName $actionInput) -ne $shutdownName) {
+        throw 'Using the quick power shortcut changed the selected action.'
     }
     $actualQuickTime = $timeInput.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value
-    $expectedQuickTime = [DateTime]::Now.AddHours(1).ToString('HH:mm')
-    if ($actualQuickTime -ne $expectedQuickTime) {
-        throw "The one-hour shortcut produced '$actualQuickTime'; expected '$expectedQuickTime'."
+    $expectedQuickTimes = @(
+        $beforeQuickClick.AddHours(1).ToString('HH:mm'),
+        $afterQuickClick.AddHours(1).ToString('HH:mm')) | Select-Object -Unique
+    if ($actualQuickTime -notin $expectedQuickTimes) {
+        throw "The one-hour shortcut produced '$actualQuickTime'; expected one of '$($expectedQuickTimes -join ', ')'."
+    }
+    $quickDate = $dateInput.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value
+    $quickTime = $actualQuickTime
+
+    Select-Action $actionInput 2
+    $hibernateButtons = Assert-QuickPowerVisibility $root $true 'hibernate'
+    $hibernateAccessibilityName = $hibernateButtons[0].Current.Name
+    if ([string]::IsNullOrWhiteSpace($hibernateAccessibilityName) -or
+        $hibernateAccessibilityName -eq $shutdownAccessibilityName) {
+        throw "The hibernation accessibility name did not change with the selected action: '$hibernateAccessibilityName'."
+    }
+    if ($dateInput.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -ne $quickDate -or
+        $timeInput.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -ne $quickTime) {
+        throw 'Changing from full shutdown to hibernation reset the quick date or time.'
+    }
+    Save-WindowPrint $handle (Join-Path $OutputDirectory "quick-power-hibernate-$Version.png")
+    $hibernateName = Get-SelectedActionName $actionInput
+    $hibernateButtons[0].GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Start-Sleep -Milliseconds 300
+    if ((Get-SelectedActionName $actionInput) -ne $hibernateName) {
+        throw 'Using the hibernation quick shortcut changed the selected action.'
     }
 
-    $actionInput.SetFocus()
-    [Windows.Forms.SendKeys]::SendWait('{HOME}')
-    Start-Sleep -Milliseconds 500
+    Select-Action $actionInput 3
+    $sleepButtons = Assert-QuickPowerVisibility $root $true 'sleep'
+    $sleepAccessibilityName = $sleepButtons[1].Current.Name
+    if ([string]::IsNullOrWhiteSpace($sleepAccessibilityName) -or
+        $sleepAccessibilityName -eq $hibernateAccessibilityName -or
+        $sleepAccessibilityName -notmatch '2') {
+        throw "The sleep accessibility name did not change with the selected action: '$sleepAccessibilityName'."
+    }
+    Save-WindowPrint $handle (Join-Path $OutputDirectory "quick-power-sleep-$Version.png")
+    $sleepName = Get-SelectedActionName $actionInput
+    $sleepButtons[1].GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Start-Sleep -Milliseconds 300
+    if ((Get-SelectedActionName $actionInput) -ne $sleepName) {
+        throw 'Using the sleep quick shortcut changed the selected action.'
+    }
+
+    $timePattern = $timeInput.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
+    $datePattern = $dateInput.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
+    if ($timePattern.Current.IsReadOnly -or $datePattern.Current.IsReadOnly) {
+        throw 'Date or time became read-only after using a quick power shortcut.'
+    }
+    $timePattern.SetValue('13:37')
+    if ($timePattern.Current.Value -ne '13:37') {
+        throw 'Time could not be manually edited after using a quick power shortcut.'
+    }
+
+    Select-Action $actionInput 0
+    Assert-QuickPowerVisibility $root $false 'automatic start after power actions' | Out-Null
 
     $wakeModeInput = Find-ByAutomationId $root 'WakeModeInput'
     if ($null -eq $wakeModeInput) {

@@ -1,5 +1,22 @@
 # 변경 이력 / Changelog
 
+## 1.0.3 - 2026-07-23
+
+- `완전 종료` 전용이던 빠른 예약을 `최대 절전`, `절전`까지 포함한 공통 `빠른 설정`으로 확장
+- 세 전원 동작에서 `1시간 뒤`, `2시간 뒤` 버튼을 같은 위치와 디자인으로 표시하고 자동 시작에서는 숨김
+- 버튼 문구에서 특정 동작명을 제거하고 선택 동작에 맞는 접근성 이름과 도움말을 동적으로 제공
+- 클릭한 현재 로컬 시각을 기준으로 계산하고 초·밀리초를 0으로 정규화
+- 자정·월말·연말·윤년 경계, 1·2시간 계산, 선택 ActionType 유지, 자동 시작 표시 제외를 자동 테스트로 검증
+- 빠른 설정 뒤 수동 편집과 동작 변경 시 날짜·시간 유지 여부를 실제 WPF UI 자동화로 검증
+
+## 1.0.3 - English summary
+
+- Extends the quick schedule controls from full shutdown to hibernation and sleep
+- Shows `In 1 hour` and `In 2 hours` for all three power transitions while keeping them hidden for scheduled wake
+- Uses action-neutral button labels with dynamic action-specific accessibility names and help text
+- Calculates from the local click time, normalizes seconds and milliseconds, and preserves manual edits and date/time when the action changes
+- Adds policy and real WPF UI automation coverage for visibility, action preservation, and date boundaries
+
 ## 1.0.2 - 2026-07-23
 
 - 예약 전원 호출 전에 `ExecutionStarted`, pending operation journal, `PendingPowerTransition` 상태를 하나의 SQLite 트랜잭션으로 먼저 저장

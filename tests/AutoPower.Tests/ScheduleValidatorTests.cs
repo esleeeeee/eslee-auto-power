@@ -112,25 +112,66 @@ public sealed class ScheduleValidatorTests
     [TestMethod]
     [DataRow(1, 2026, 7, 23, 0, 20)]
     [DataRow(2, 2026, 7, 23, 1, 20)]
-    public void QuickShutdownUsesClickTimeAndCrossesMidnight(
+    public void QuickPowerTransitionUsesClickTimeAndCrossesMidnight(
         int hours, int year, int month, int day, int hour, int minute)
     {
         var clicked = new DateTime(2026, 7, 22, 23, 20, 49, DateTimeKind.Local);
 
-        var result = ScheduleTimePolicy.QuickShutdown(clicked, hours);
+        var result = ScheduleTimePolicy.QuickPowerTransition(clicked, hours);
 
         Assert.AreEqual(new DateTime(year, month, day, hour, minute, 0, DateTimeKind.Unspecified), result);
     }
 
     [TestMethod]
-    public void QuickShutdownHandlesMonthAndYearBoundaries()
+    public void QuickPowerTransitionHandlesMonthYearAndLeapYearBoundaries()
     {
         Assert.AreEqual(
             new DateTime(2027, 1, 1, 0, 30, 0, DateTimeKind.Unspecified),
-            ScheduleTimePolicy.QuickShutdown(new DateTime(2026, 12, 31, 23, 30, 45), 1));
+            ScheduleTimePolicy.QuickPowerTransition(new DateTime(2026, 12, 31, 23, 30, 45), 1));
         Assert.AreEqual(
             new DateTime(2026, 3, 1, 0, 30, 0, DateTimeKind.Unspecified),
-            ScheduleTimePolicy.QuickShutdown(new DateTime(2026, 2, 28, 22, 30, 45), 2));
+            ScheduleTimePolicy.QuickPowerTransition(new DateTime(2026, 2, 28, 22, 30, 45), 2));
+        Assert.AreEqual(
+            new DateTime(2028, 2, 29, 0, 30, 0, DateTimeKind.Unspecified),
+            ScheduleTimePolicy.QuickPowerTransition(new DateTime(2028, 2, 28, 23, 30, 59, 999), 1));
+    }
+
+    [TestMethod]
+    [DataRow(PowerActionType.Shutdown, 1)]
+    [DataRow(PowerActionType.Shutdown, 2)]
+    [DataRow(PowerActionType.Hibernate, 1)]
+    [DataRow(PowerActionType.Hibernate, 2)]
+    [DataRow(PowerActionType.Sleep, 1)]
+    [DataRow(PowerActionType.Sleep, 2)]
+    public void QuickPowerTransitionKeepsSelectedActionType(PowerActionType action, int hours)
+    {
+        var clicked = new DateTime(2026, 7, 23, 12, 15, 58, 987, DateTimeKind.Local);
+
+        var schedule = PowerSchedule.Create(
+            ScheduleTimePolicy.QuickPowerTransition(clicked, hours),
+            action);
+
+        Assert.AreEqual(action, schedule.ActionType);
+        Assert.AreEqual(new DateTime(2026, 7, 23, 12 + hours, 15, 0, DateTimeKind.Unspecified),
+            schedule.ScheduledLocalDateTime);
+        Assert.IsTrue(PowerSchedulePolicy.IsPowerTransition(schedule.ActionType));
+    }
+
+    [TestMethod]
+    public void QuickPowerTransitionIsHiddenForAutomaticStartActions()
+    {
+        Assert.IsFalse(PowerSchedulePolicy.IsPowerTransition(PowerActionType.WakeFromSleep));
+        Assert.IsFalse(PowerSchedulePolicy.IsPowerTransition(PowerActionType.WakeFromHibernate));
+        Assert.IsTrue(PowerSchedulePolicy.IsPowerTransition(PowerActionType.Shutdown));
+        Assert.IsTrue(PowerSchedulePolicy.IsPowerTransition(PowerActionType.Hibernate));
+        Assert.IsTrue(PowerSchedulePolicy.IsPowerTransition(PowerActionType.Sleep));
+    }
+
+    [TestMethod]
+    public void QuickPowerTransitionRejectsUnsupportedHourOffset()
+    {
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+            ScheduleTimePolicy.QuickPowerTransition(DateTime.Now, 3));
     }
 
     [TestMethod]

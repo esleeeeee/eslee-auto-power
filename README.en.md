@@ -29,7 +29,7 @@ App-controlled startup after a full shutdown is intentionally not presented or e
 
 ## Quick start
 
-1. Download `eslee-auto-power-v1.0.2-en-setup.exe` from [Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest).
+1. Download `eslee-auto-power-v1.0.3-en-setup.exe` from [Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest).
 2. Open Compatibility and run the two-minute real test for an available S3/S4 path.
 3. In Settings, save and validate the Windows account password. Windows Hello PINs are not supported.
 4. Create a scheduled wake or choose full shutdown, hibernation, or sleep. A new schedule starts with the local date and time at which the editor was opened.
@@ -37,11 +37,20 @@ App-controlled startup after a full shutdown is intentionally not presented or e
 
 Save unsaved work before entering sleep or hibernation.
 
+## Quick power-transition schedules
+
+Selecting full shutdown, hibernation, or sleep in the new-schedule editor shows the same `In 1 hour` and `In 2 hours` quick controls. They stay hidden for scheduled wake.
+
+- The calculation starts from the current local time at the exact moment the button is clicked.
+- Midnight, month-end, year-end, and leap-year boundaries are handled by the Windows date calculation.
+- Seconds and milliseconds are normalized to zero, and the date and time remain manually editable.
+- Changing the selected action does not reset the date or time. Clicking a quick control again recalculates from the new click time.
+- The controls only populate the existing date and time fields, so validation and saving use the normal path.
+
 ## Scheduled full shutdown
 
 Full shutdown is the S5 action that turns the PC off. It is separate from waking or booting a PC from S5.
 
-- `Shut down in 1 hour` and `Shut down in 2 hours` appear only for the full-shutdown action. They calculate from the moment clicked and remain manually editable.
 - A warning appears exactly five minutes before the action.
 - At the scheduled time, the app requests a graceful shutdown first and runs a forced fallback if shutdown has not completed within 30 seconds.
 - If a later scheduled wake is active, the app explains that full shutdown prevents it from turning the PC back on. The five-minute warning can switch to the S3/S4 state required by that wake or continue with full shutdown after confirmation.
@@ -117,7 +126,7 @@ Requirements:
 dotnet restore .\AutoPower.sln
 dotnet build .\AutoPower.sln -c Release
 dotnet test .\tests\AutoPower.Tests\AutoPower.Tests.csproj -c Release
-.\scripts\Build-Release.ps1 -Version 1.0.2
+.\scripts\Build-Release.ps1 -Version 1.0.3
 ```
 
 Use `-p:AppLanguage=ko` or `-p:AppLanguage=en` for a single-language build. The release script produces self-contained x64 Korean and English installers plus SHA-256 files under `artifacts\installer`.
