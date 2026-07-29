@@ -117,6 +117,31 @@ public sealed class SqliteStoreTests
         Assert.AreEqual(operation.Id, (await database.Store.GetIncompleteOperationsAsync()).Single().Id);
     }
 
+    [TestMethod]
+    public async Task FailedPowerTransitionMarksPendingOperationFailedInsteadOfCompleted()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var schedule = PowerSchedule.Create(DateTime.Now.AddMinutes(1), PowerActionType.Shutdown);
+        await database.Store.SaveScheduleAsync(schedule);
+        var operation = await database.Store.TryBeginPowerTransitionAsync(schedule, "완전 종료 시작");
+        Assert.IsNotNull(operation);
+
+        var changed = await database.Store.TryFinalizePowerTransitionAsync(
+            schedule.Id,
+            ScheduleStatus.Failed,
+            "PowerTransitionFailed",
+            ResultKind.Failure,
+            schedule.ScheduledLocalDateTime,
+            "fallback까지 실패",
+            [ScheduleStatus.PendingPowerTransition],
+            "5");
+
+        Assert.IsTrue(changed);
+        var pending = (await database.Store.GetIncompleteOperationsAsync())
+            .Single(item => item.ScheduleId == schedule.Id);
+        Assert.AreEqual(PendingOperationState.Failed, pending.State);
+    }
+
     internal sealed class TestDatabase : IAsyncDisposable
     {
         private readonly string _directory;

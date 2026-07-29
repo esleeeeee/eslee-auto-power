@@ -1,69 +1,74 @@
-# v1.0.3 검증 결과
+# v1.0.4 검증 결과
 
-검증일: 2026-07-23
+검증일: 2026-07-29
 
 ## 변경 범위
 
-- 완전 종료에서만 보이던 빠른 예약을 최대 절전과 절전에도 표시
-- 세 전원 동작에서 공통 `1시간 뒤`, `2시간 뒤` 문구 사용
-- 자동 시작 예약에서는 빠른 전원 전환 UI 숨김
-- 버튼 클릭 시각의 로컬 날짜·시간만 갱신하고 기존 validation과 저장 경로 유지
-- 선택 동작에 따라 접근성 이름, 도움말과 툴팁을 동적으로 갱신
+- `shutdown.exe /s /soft` 호출을 Windows `InitiateShutdownW` 기반 구현으로 교체
+- `SeShutdownPrivilege` 활성화 및 `ERROR_NOT_ALL_ASSIGNED` 명시적 검사
+- 정상 종료 요청과 제한시간 후 fallback을 durable pending journal에 단계별 기록
+- primary가 거절되더라도 fallback 예약과 pending 상태를 유지
+- fallback까지 거절된 경우에만 최종 실패로 확정
+- Win32 반환 코드, symbolic name, flags, reason, grace period, privilege 결과와 실행 문맥을 기술 로그에 기록
 
-현재 설치본, `%ProgramData%` 운영 DB와 실제 Task Scheduler 예약은 변경하거나 덮어쓰지 않았다. 빌드, UI 자동화와 게시본 스모크 테스트는 모두 격리된 `ESLEE_AUTOPOWER_DATA_ROOT`를 사용했다.
+현재 설치본, `%ProgramData%` 운영 DB, 실제 Task Scheduler 예약에는 접근하거나 변경하지 않았다. 실제 종료·재부팅·절전·최대 절전 명령도 실행하지 않았다.
 
-## 정책 자동 테스트
+## 종료 경로 정적 검증
 
-- 완전 종료·최대 절전·절전의 1시간 및 2시간 계산
-- 선택한 `PowerActionType` 유지
-- 자동 시작에 해당하는 S3/S4 Wake 타입은 빠른 전원 전환 대상에서 제외
-- 자정 넘김
-- 월말 및 연말 전환
-- 윤년 2월 29일 전환
-- 초와 밀리초를 0으로 정규화
-- 지원하지 않는 시간 간격 거부
-- 기존 전원 예약과 v1.0.2 durable reconciliation 회귀 테스트 유지
+- 실행 코드에서 `shutdown.exe`, `/soft`, `Process.Start` 기반 종료 경로 제거 확인
+- primary 요청:
+  - API: `InitiateShutdownW`
+  - grace period: 30초
+  - flags: `SHUTDOWN_FORCE_OTHERS | SHUTDOWN_FORCE_SELF | SHUTDOWN_POWEROFF`
+  - reason: `SHTDN_REASON_FLAG_PLANNED | SHTDN_REASON_MAJOR_APPLICATION | SHTDN_REASON_MINOR_MAINTENANCE`
+- fallback 요청:
+  - API: `InitiateShutdownW`
+  - grace period: 0초
+  - 기본 flags: primary와 동일
+  - 예약된 종료가 이미 있을 때 `ERROR_SHUTDOWN_IS_SCHEDULED`를 확인하고 `SHUTDOWN_GRACE_OVERRIDE`로 한 번 재시도
+- `ERROR_SHUTDOWN_IN_PROGRESS`와 이미 예약된 종료는 수락 또는 진행 중 증거로 처리
+- 네이티브 DWORD 반환값을 프로세스 종료 코드나 HRESULT로 변환하지 않고 그대로 보존
 
-## 실제 WPF UI 자동화
+## fake native API 자동 테스트
 
-한국어와 영어 Debug 실제 창, 한국어와 영어 Release 게시본 기동을 격리된 데이터 폴더에서 확인했다.
+- primary 성공
+- Win32 오류 `1`, `5`, `21`, `87`, `1115`, `1190`, `1191` 및 알 수 없는 코드
+- raw native error code 보존
+- privilege 활성화 성공
+- `AdjustTokenPrivileges` 성공 반환 후 `ERROR_NOT_ALL_ASSIGNED`
+- privilege API 자체 실패
+- fallback grace override 재시도
+- 종료 진행 중 및 예약됨 판정
+- 로그에 사용자명, SID, 암호 등 민감정보가 포함되지 않음
+- primary 거절 시 fallback 유지 및 `Compensating` 상태
+- fallback 수락 시 reconciliation 대기
+- fallback 거절 시에만 최종 `Failed`
+- 실패한 pending operation이 `Completed`로 오표기되지 않음
+- 기존 S3/S4, 빠른 전원 예약, durable reconciliation 회귀 테스트
 
-- 자동 시작 선택: 빠른 설정 버튼 숨김
-- 완전 종료 선택: 두 버튼 표시 및 `1시간 뒤` 계산
-- 최대 절전 선택: 두 버튼 표시, 선택 동작과 기존 날짜·시간 유지
-- 절전 선택: 두 버튼 표시 및 `2시간 뒤` 계산
-- 버튼 클릭 뒤 선택된 동작이 바뀌지 않음
-- 빠른 설정 뒤 DatePicker와 시간 입력이 read-only로 바뀌지 않음
-- 시간 값을 직접 수정할 수 있음
-- 선택 동작에 따라 버튼 접근성 이름이 달라짐
-- 기본 720×700 DIP 창에서 버튼, 설명, 하단 저장 버튼이 잘리지 않음
-- `WrapPanel`, 세로 `ScrollViewer`와 WPF DIP 레이아웃을 사용하므로 100%·125%·150%에서 동일한 논리 크기로 배치됨
-- 실제 Windows 125% 배율의 900×875 물리 픽셀 창에서 한국어·영어 캡처 확인
-
-캡처:
-
-- `artifacts/ui-v1.0.3-quick-power/quick-power-shutdown-1.0.3.png`
-- `artifacts/ui-v1.0.3-quick-power/quick-power-hibernate-1.0.3.png`
-- `artifacts/ui-v1.0.3-quick-power/quick-power-sleep-1.0.3.png`
-- `artifacts/ui-v1.0.3-quick-power-en/quick-power-hibernate-1.0.3-en.png`
-
-## 빌드와 검사
+## 빌드·테스트 결과
 
 - 한국어 Release 빌드: 경고 0, 오류 0
 - 영어 Release 빌드: 경고 0, 오류 0
-- 한국어 MSTest: 92/92 통과
-- 영어 MSTest: 92/92 통과
+- 한국어 MSTest: 115/115 통과
+- 영어 MSTest: 115/115 통과
 - NuGet 직접·전이 취약 패키지: 0건
-- 한국어·영어 self-contained 게시본: 창 표시 및 응답 상태 정상
-- 게시본 ProductVersion: `1.0.3+f195dc4c6e63d41084c193b8e173226255781f61`
-- 게시본 FileVersion: `1.0.3.0`
-- 추적 파일 개인정보 패턴 검사: 사용자명·로컬 사용자 경로 없음
+- 게시본 FileVersion: `1.0.4.0`
+- 게시본 ProductVersion: `1.0.4+396fce738c16796f45c197fb4d31aa63aaf02a53`
+- 테스트는 fake native API와 격리된 임시 데이터 경로만 사용
 
-## GitHub 공식 릴리스 설치 파일
+## 로컬 설치 파일
 
-- 한국어: `eslee-auto-power-v1.0.3-ko-setup.exe`
-  - SHA-256: `570FF7107EF993B9D487AADCBF63C1CCE7AF79332CE42DE5A09AEE7130AE10FC`
-- 영어: `eslee-auto-power-v1.0.3-en-setup.exe`
-  - SHA-256: `778CE271A7D7FD6DFF08CA239E3164CCE261BF81AB17241DCA7C8A5123D5DB42`
+- 한국어: `artifacts/installer/eslee-auto-power-v1.0.4-ko-setup.exe`
+  - SHA-256: `B427604C61A5017693E45B69AC4BD53254FAE31F62CA7A1CE00EEB42DCDD40B6`
+- 영어: `artifacts/installer/eslee-auto-power-v1.0.4-en-setup.exe`
+  - SHA-256: `E8A943AA81E7E268A258DE235309458F8742D4B4C87D097FFC05BD17DE64EF89`
 
-GitHub Actions 공개 자산의 digest와 동봉된 `.sha256` 파일을 대조했으며 두 값이 일치한다.
+GitHub Actions가 태그 소스에서 다시 빌드한 공식 릴리스 파일은 게시 후 별도로 내려받아 동봉된 `.sha256` 및 GitHub asset digest와 대조한다.
+
+## 운영 환경 보호 확인
+
+- 현재 설치본: 변경하지 않음
+- 운영 DB: 읽기·쓰기 모두 수행하지 않음
+- 운영 Task Scheduler 작업: 읽기·쓰기 모두 수행하지 않음
+- 실제 전원 동작: 실행하지 않음

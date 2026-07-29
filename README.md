@@ -29,7 +29,7 @@ Windows 작업 스케줄러의 `WakeToRun`만 등록해 두면 PC가 어떤 상�
 
 ## 빠른 시작
 
-1. [Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest)에서 `eslee-auto-power-v1.0.3-ko-setup.exe`를 내려받아 설치합니다.
+1. [Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest)에서 `eslee-auto-power-v1.0.4-ko-setup.exe`를 내려받아 설치합니다.
 2. `호환성`에서 S3/S4 지원 상태를 확인하고 가능한 전원 방식의 2분 실기 테스트를 진행합니다.
 3. `설정`에서 Windows 계정 암호를 저장·검증합니다. Windows Hello PIN은 사용할 수 없습니다.
 4. `+ 새 예약`에서 자동 시작 또는 완전 종료·최대 절전·절전 동작을 선택합니다. 새 예약의 날짜와 시각은 화면을 연 현재 시각으로 시작합니다.
@@ -52,7 +52,8 @@ Windows 작업 스케줄러의 `WakeToRun`만 등록해 두면 PC가 어떤 상�
 `완전 종료`는 PC를 끄는 S5 동작이며, S5 상태에서 PC를 다시 켜는 기능과는 별개입니다.
 
 - 정확히 5분 전에 저장하지 않은 작업을 확인할 수 있는 경고가 표시됩니다.
-- 예약 시각에는 정상 종료를 먼저 요청하고, 30초 안에 완료되지 않으면 강제 종료 fallback을 실행합니다.
+- 예약 시각에는 문서화된 Windows `InitiateShutdownW` API로 30초 유예가 있는 계획된 S5 완전 종료를 요청합니다. 다른 로그인 세션이 있어도 무인 종료가 진행되며 Fast Startup용 hybrid 종료는 사용하지 않습니다.
+- Windows가 첫 요청을 거부해도 예약을 즉시 실패로 끝내거나 fallback을 삭제하지 않습니다. 30초 뒤 별도 SYSTEM 작업이 즉시 강제 종료를 시도하며, fallback까지 거부된 경우에만 최종 실패로 기록합니다.
 - 이후 활성 자동 시작 예약이 있으면 완전 종료로는 해당 예약이 PC를 다시 켤 수 없다고 안내합니다. 5분 전 경고에서 다음 예약에 맞는 S3/S4 상태로 전환하거나, 경고를 확인하고 완전 종료를 계속할 수 있습니다.
 
 장시간 대기 뒤 자동 시작에는 최대 절전, 짧은 대기에는 절전을 권장합니다.
@@ -69,7 +70,7 @@ flowchart LR
     F --> G["T0 + N분 후속 프로그램 실행"]
 ```
 
-절전·최대 절전·완전 종료 예약은 전원 명령보다 먼저 `ExecutionStarted`, pending journal, `PendingPowerTransition` 상태를 DB에 저장하고 해당 1회성 Task를 소비합니다. S3/S4 복귀 또는 다음 앱 시작 때 Windows 전원 이벤트와 Task 결과를 대조해 완료·실패·미실행·결과 불명 중 하나로 확정합니다. 따라서 과거 예약을 단순히 성공으로 간주하거나 늦게 다시 실행하지 않습니다.
+절전·최대 절전·완전 종료 예약은 전원 명령보다 먼저 `ExecutionStarted`, pending journal, `PendingPowerTransition` 상태를 DB에 저장하고 해당 1회성 Task를 소비합니다. 완전 종료는 primary 접수·거부, fallback 대기·실행·접수·거부를 journal에 구분해 남깁니다. S3/S4 복귀 또는 다음 앱 시작 때 Windows 전원 이벤트와 Task 결과를 대조해 완료·실패·미실행·결과 불명 중 하나로 확정합니다. 따라서 과거 예약을 단순히 성공으로 간주하거나 늦게 다시 실행하지 않습니다.
 
 앱은 역할을 세 프로세스로 나눕니다.
 
@@ -131,7 +132,7 @@ dotnet test .\tests\AutoPower.Tests\AutoPower.Tests.csproj -c Release
 한국어·영어 설치 파일을 함께 만들려면:
 
 ```powershell
-.\scripts\Build-Release.ps1 -Version 1.0.3
+.\scripts\Build-Release.ps1 -Version 1.0.4
 ```
 
 언어별 단일 빌드는 `-p:AppLanguage=ko` 또는 `-p:AppLanguage=en`을 사용합니다. 릴리스 스크립트는 self-contained x64 설치 파일 두 개와 SHA-256 파일을 `artifacts\installer`에 만듭니다.

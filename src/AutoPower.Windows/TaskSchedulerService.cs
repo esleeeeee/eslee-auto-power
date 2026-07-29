@@ -24,6 +24,12 @@ public interface ISystemScheduleRegistrar
     void RemoveAllOwnedTasks();
 }
 
+public interface IShutdownFallbackRegistrar
+{
+    void RegisterShutdownFallback(Guid scheduleId, DateTime localTime);
+    void Remove(Guid scheduleId);
+}
+
 public sealed record PowerTaskSnapshot(
     bool Exists,
     bool Enabled,
@@ -35,7 +41,7 @@ public sealed record PowerTaskSnapshot(
     public static PowerTaskSnapshot Missing { get; } = new(false, false, false, null, null, null);
 }
 
-public sealed class TaskSchedulerService : ISystemScheduleRegistrar, IElevatedProgramLauncher
+public sealed class TaskSchedulerService : ISystemScheduleRegistrar, IShutdownFallbackRegistrar, IElevatedProgramLauncher
 {
     private const int TaskTriggerTime = 1;
     private const int TaskTriggerLogon = 9;

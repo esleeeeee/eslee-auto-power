@@ -387,15 +387,104 @@ public sealed class SqliteStore
                 pending.Transaction = transaction;
                 pending.CommandText = """
                     UPDATE PendingOperations
-                    SET State=$completed, UpdatedAtUtc=$updated, Detail=$detail
-                    WHERE ScheduleId=$scheduleId AND Type=$type AND State <> $completed;
+                    SET State=$terminalState, UpdatedAtUtc=$updated, Detail=$detail
+                    WHERE ScheduleId=$scheduleId AND Type=$type;
                     """;
-                pending.Parameters.AddWithValue("$completed", (int)PendingOperationState.Completed);
+                var terminalState = finalStatus == ScheduleStatus.Failed
+                    ? PendingOperationState.Failed
+                    : PendingOperationState.Completed;
+                pending.Parameters.AddWithValue("$terminalState", (int)terminalState);
                 pending.Parameters.AddWithValue("$updated", Utc(actual));
                 pending.Parameters.AddWithValue("$detail", $"전원 전환 결과 확정: {finalStatus}");
                 pending.Parameters.AddWithValue("$scheduleId", scheduleId.ToString("D"));
                 pending.Parameters.AddWithValue("$type", (int)PendingOperationType.PowerTransition);
                 await pending.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await using (var history = connection.CreateCommand())
+            {
+                history.Transaction = transaction;
+                history.CommandText = """
+                    INSERT INTO ExecutionHistory(
+                        ScheduleId, EventType, Result, PlannedLocalTime,
+                        ActualTimeUtc, UserReadableMessage, ErrorCode)
+                    VALUES($scheduleId, $eventType, $result, $planned, $actual, $message, $errorCode);
+                    """;
+                history.Parameters.AddWithValue("$scheduleId", scheduleId.ToString("D"));
+                history.Parameters.AddWithValue("$eventType", eventType);
+                history.Parameters.AddWithValue("$result", (int)result);
+                history.Parameters.AddWithValue("$planned", plannedLocalTime is null ? DBNull.Value : Local(plannedLocalTime.Value));
+                history.Parameters.AddWithValue("$actual", Utc(actual));
+                history.Parameters.AddWithValue("$message", message);
+                history.Parameters.AddWithValue("$errorCode", (object?)errorCode ?? DBNull.Value);
+                await history.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    public async Task<bool> RecordPowerTransitionStageAsync(
+        Guid operationId,
+        Guid scheduleId,
+        PendingOperationState operationState,
+        string detail,
+        string eventType,
+        ResultKind result,
+        DateTime? plannedLocalTime,
+        string message,
+        string? errorCode = null,
+        DateTimeOffset? actualTimeUtc = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (operationState is not (PendingOperationState.Pending or PendingOperationState.Compensating))
+        {
+            throw new ArgumentOutOfRangeException(nameof(operationState));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(detail);
+        ArgumentException.ThrowIfNullOrWhiteSpace(eventType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(message);
+        var actual = actualTimeUtc ?? DateTimeOffset.UtcNow;
+
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            int changed;
+            await using (var pending = connection.CreateCommand())
+            {
+                pending.Transaction = transaction;
+                pending.CommandText = """
+                    UPDATE PendingOperations
+                    SET State=$state, UpdatedAtUtc=$updated, Detail=$detail
+                    WHERE Id=$operationId AND ScheduleId=$scheduleId AND Type=$type
+                      AND State IN ($pending, $compensating);
+                    SELECT changes();
+                    """;
+                pending.Parameters.AddWithValue("$state", (int)operationState);
+                pending.Parameters.AddWithValue("$updated", Utc(actual));
+                pending.Parameters.AddWithValue("$detail", detail);
+                pending.Parameters.AddWithValue("$operationId", operationId.ToString("D"));
+                pending.Parameters.AddWithValue("$scheduleId", scheduleId.ToString("D"));
+                pending.Parameters.AddWithValue("$type", (int)PendingOperationType.PowerTransition);
+                pending.Parameters.AddWithValue("$pending", (int)PendingOperationState.Pending);
+                pending.Parameters.AddWithValue("$compensating", (int)PendingOperationState.Compensating);
+                changed = Convert.ToInt32(
+                    await pending.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+                    CultureInfo.InvariantCulture);
+            }
+
+            if (changed != 1)
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return false;
             }
 
             await using (var history = connection.CreateCommand())

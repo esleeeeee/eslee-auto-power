@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Management;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -194,8 +193,8 @@ public interface IPowerActionExecutor
 
 public interface IShutdownController
 {
-    Task StartGracefulShutdownAsync(CancellationToken cancellationToken = default);
-    Task ForceShutdownAsync(CancellationToken cancellationToken = default);
+    Task<ShutdownExecutionResult> StartGracefulShutdownAsync(CancellationToken cancellationToken = default);
+    Task<ShutdownExecutionResult> ForceShutdownAsync(CancellationToken cancellationToken = default);
 }
 
 public sealed class PowerActionExecutor : IPowerActionExecutor
@@ -207,7 +206,7 @@ public sealed class PowerActionExecutor : IPowerActionExecutor
         _shutdown = shutdown ?? new WindowsShutdownController();
     }
 
-    public Task ExecuteAsync(PowerActionType action, CancellationToken cancellationToken = default)
+    public async Task ExecuteAsync(PowerActionType action, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         switch (action)
@@ -227,7 +226,12 @@ public sealed class PowerActionExecutor : IPowerActionExecutor
 
                 break;
             case PowerActionType.Shutdown:
-                return _shutdown.StartGracefulShutdownAsync(cancellationToken);
+                var result = await _shutdown.StartGracefulShutdownAsync(cancellationToken).ConfigureAwait(false);
+                if (!result.Accepted)
+                {
+                    throw new ShutdownRequestRejectedException(result);
+                }
+                break;
             case PowerActionType.PowerOn:
                 throw new InvalidOperationException("앱 기반 완전 종료 자동 부팅은 현재 제품에서 제공하지 않습니다.");
             case PowerActionType.WakeFromSleep:
@@ -236,50 +240,12 @@ public sealed class PowerActionExecutor : IPowerActionExecutor
             default:
                 throw new ArgumentOutOfRangeException(nameof(action));
         }
-        return Task.CompletedTask;
     }
 
     [DllImport("powrprof.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetSuspendState(bool hibernate, bool forceCritical, bool disableWakeEvent);
 
-}
-
-public sealed class WindowsShutdownController : IShutdownController
-{
-    public Task StartGracefulShutdownAsync(CancellationToken cancellationToken = default) =>
-        RunShutdownAsync(force: false, cancellationToken);
-
-    public Task ForceShutdownAsync(CancellationToken cancellationToken = default) =>
-        RunShutdownAsync(force: true, cancellationToken);
-
-    internal static IReadOnlyList<string> CreateArguments(bool force) => force
-        ? ["/s", "/f", "/t", "0", "/d", "p:0:0", "/c", "eslee Auto Power 강제 종료 fallback"]
-        : ["/s", "/soft", "/t", "0", "/d", "p:0:0", "/c", "eslee Auto Power 예약 완전 종료"];
-
-    private static async Task RunShutdownAsync(bool force, CancellationToken cancellationToken)
-    {
-        var executable = Path.Combine(Environment.SystemDirectory, "shutdown.exe");
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = executable,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WindowStyle = ProcessWindowStyle.Hidden
-        };
-        foreach (var argument in CreateArguments(force))
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
-
-        using var process = Process.Start(startInfo)
-                            ?? throw new InvalidOperationException("Windows 완전 종료 명령을 시작하지 못했습니다.");
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        if (process.ExitCode != 0)
-        {
-            throw new Win32Exception(process.ExitCode, $"Windows {(force ? "강제" : "정상")} 종료 명령이 실패했습니다.");
-        }
-    }
 }
 
 public enum SleepWakeTestTarget

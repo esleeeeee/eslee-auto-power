@@ -78,20 +78,11 @@ public sealed class PowerIntegrationTests
         var shutdown = new FakeShutdownController();
         var executor = new PowerActionExecutor(shutdown);
 
-        Assert.ThrowsExactly<InvalidOperationException>(() => executor.ExecuteAsync(PowerActionType.PowerOn));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => executor.ExecuteAsync(PowerActionType.PowerOn));
         await executor.ExecuteAsync(PowerActionType.Shutdown);
         Assert.AreEqual(1, shutdown.GracefulCount);
         Assert.AreEqual(0, shutdown.ForceCount);
-    }
-
-    [TestMethod]
-    public void ShutdownCommandsSeparateGracefulAndForcedFallback()
-    {
-        CollectionAssert.Contains(WindowsShutdownController.CreateArguments(force: false).ToArray(), "/soft");
-        CollectionAssert.DoesNotContain(WindowsShutdownController.CreateArguments(force: false).ToArray(), "/f");
-        CollectionAssert.Contains(WindowsShutdownController.CreateArguments(force: true).ToArray(), "/f");
-        CollectionAssert.DoesNotContain(WindowsShutdownController.CreateArguments(force: true).ToArray(), "/soft");
-        Assert.AreEqual(TimeSpan.FromSeconds(30), WarningPolicy.ShutdownGracePeriod);
     }
 
     [TestMethod]
@@ -203,16 +194,38 @@ public sealed class PowerIntegrationTests
         public int GracefulCount { get; private set; }
         public int ForceCount { get; private set; }
 
-        public Task StartGracefulShutdownAsync(CancellationToken cancellationToken = default)
+        public Task<ShutdownExecutionResult> StartGracefulShutdownAsync(CancellationToken cancellationToken = default)
         {
             GracefulCount++;
-            return Task.CompletedTask;
+            return Task.FromResult(Accepted(ShutdownStage.Primary));
         }
 
-        public Task ForceShutdownAsync(CancellationToken cancellationToken = default)
+        public Task<ShutdownExecutionResult> ForceShutdownAsync(CancellationToken cancellationToken = default)
         {
             ForceCount++;
-            return Task.CompletedTask;
+            return Task.FromResult(Accepted(ShutdownStage.Fallback));
+        }
+
+        private static ShutdownExecutionResult Accepted(ShutdownStage stage)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var privilege = new ShutdownPrivilegeResult(
+                true,
+                false,
+                true,
+                "AdjustTokenPrivileges",
+                0,
+                "ERROR_SUCCESS",
+                "success");
+            var request = new ShutdownRequest(stage, stage == ShutdownStage.Primary ? 30u : 0u, 0xBu, 0x80040001u);
+            return new ShutdownExecutionResult(
+                request,
+                ShutdownDisposition.Accepted,
+                privilege,
+                new ShutdownExecutionContext(1, 0, true, true),
+                [new ShutdownNativeAttempt(request.Flags, 0, "ERROR_SUCCESS", "success")],
+                now,
+                now);
         }
     }
 }

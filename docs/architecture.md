@@ -48,7 +48,7 @@ Helper의 Task 등록은 예약별 기존 앱 작업을 먼저 제거한 뒤 새
 - S3/S4에서는 복귀 뒤 Helper가 Kernel-Power 187/42와 Power-Troubleshooter 1을 확인한 후에만 Completed로 확정한다. Helper가 중단되면 다음 앱 시작 또는 SYSTEM reconciliation이 journal, Task 결과, Windows 이벤트를 다시 대조한다.
 - 과거 Pending/PendingPowerTransition 예약은 증거에 따라 Completed, Failed, Missed, ResultUnknown 중 하나로 정리한다. 과거라는 사실이나 Task 결과 0만으로 성공 처리하지 않는다.
 - `StartWhenAvailable=false`, `MultipleInstances=IgnoreNew`, 예약 시각 + 2분 EndBoundary를 함께 적용해 놓친 전원 Task가 나중에 실행되지 않게 한다.
-- Shutdown은 `shutdown.exe /s /soft /t 0`으로 정상 종료를 요청한다. 동시에 30초 뒤 `force-shutdown` SYSTEM fallback 작업을 등록하며, PC가 아직 실행 중이고 직전 `PendingPowerTransition` Shutdown 예약으로 검증될 때만 `/s /f /t 0`을 수행한다. 완료 여부는 다음 부팅에서 User32 1074와 종료/부팅 이벤트로 확정한다.
+- Shutdown은 `SeShutdownPrivilege`를 명시적으로 활성화·검증한 뒤 `InitiateShutdownW`를 호출한다. primary는 `SHUTDOWN_POWEROFF | SHUTDOWN_FORCE_SELF | SHUTDOWN_FORCE_OTHERS`, 30초 grace, `Application Maintenance (Planned)` reason을 사용하고 `SHUTDOWN_HYBRID`는 사용하지 않는다. 동시에 30초 뒤 `force-shutdown` SYSTEM fallback을 등록한다. primary 거부 시 schedule은 `PendingPowerTransition`, journal은 `Compensating`으로 남겨 fallback을 보존한다. fallback은 grace 0으로 즉시 요청하고 이미 예약된 종료에만 `SHUTDOWN_GRACE_OVERRIDE`를 제한적으로 재시도한다. fallback까지 거부된 경우에만 Failed이며, 접수된 종료의 완료 여부는 다음 부팅에서 User32 1074와 종료/부팅 이벤트로 확정한다.
 - Shutdown 뒤에 활성 Wake 예약이 있으면 저장 단계와 5분 전 경고에서 S5 상태로는 다시 켤 수 없음을 알린다. 사용자는 다음 Wake가 요구하는 S3/S4 상태로 전환하거나 완전 종료를 명시적으로 계속할 수 있다.
 
 ## S3/S4 앱 관리형 1회 자동 로그인
