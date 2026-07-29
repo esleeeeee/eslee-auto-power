@@ -28,6 +28,12 @@ internal static class HelperProgram
             new WindowsResumeSignInSettings(),
             new JsonResumeSignInJournalStore(),
             logger);
+        var shutdown = new WindowsShutdownController(logger);
+        var shutdownWorkflow = new ShutdownPowerTransitionWorkflow(
+            store,
+            registrar,
+            shutdown,
+            logger);
 
         try
         {
@@ -249,25 +255,44 @@ internal static class HelperProgram
                         schedule,
                         $"{KoreanAction(schedule.ActionType)} 동작 실행을 시작했습니다.").ConfigureAwait(false)
                         ?? throw new InvalidOperationException("이미 소비됐거나 실행 중인 전원 예약입니다.");
+                    if (schedule.ActionType == PowerActionType.Shutdown)
+                    {
+                        try
+                        {
+                            registrar.ConsumePowerTask(id);
+                            await RecordShutdownWakeConflictAsync(store, schedule).ConfigureAwait(false);
+                            await shutdownWorkflow.StartPrimaryAsync(schedule, operation).ConfigureAwait(false);
+                        }
+                        catch (Exception error)
+                        {
+                            await store.TryFinalizePowerTransitionAsync(
+                                id,
+                                ScheduleStatus.Failed,
+                                "PowerTransitionFailed",
+                                ResultKind.Failure,
+                                schedule.ScheduledLocalDateTime,
+                                "완전 종료 준비 단계가 실패했습니다.",
+                                [ScheduleStatus.PendingPowerTransition],
+                                "SHUTDOWN_PREPARATION_FAILED").ConfigureAwait(false);
+                            registrar.Remove(id);
+                            logger.Error(
+                                "shutdown.preparation-failed",
+                                error,
+                                $"schedule={id:D};action={schedule.ActionType};operationBefore=Pending;operationAfter=Failed");
+                            throw;
+                        }
+
+                        return 0;
+                    }
+
                     try
                     {
                         registrar.ConsumePowerTask(id);
-                        if (schedule.ActionType == PowerActionType.Shutdown)
-                        {
-                            await RecordShutdownWakeConflictAsync(store, schedule).ConfigureAwait(false);
-                            registrar.RegisterShutdownFallback(id, DateTime.Now + WarningPolicy.ShutdownGracePeriod);
-                        }
-                        else
-                        {
-                            await EnsureNextWakeAsync(store, registrar, id).ConfigureAwait(false);
-                        }
+                        await EnsureNextWakeAsync(store, registrar, id).ConfigureAwait(false);
 
                         await new PowerActionExecutor().ExecuteAsync(schedule.ActionType).ConfigureAwait(false);
-                        if (schedule.ActionType != PowerActionType.Shutdown)
-                        {
-                            await FinalizeResumedPowerTransitionAsync(
-                                store, registrar, logger, schedule, operation.CreatedAtUtc).ConfigureAwait(false);
-                        }
+                        await FinalizeResumedPowerTransitionAsync(
+                            store, registrar, logger, schedule, operation.CreatedAtUtc).ConfigureAwait(false);
                     }
                     catch (Exception error)
                     {
@@ -301,25 +326,44 @@ internal static class HelperProgram
                         schedule,
                         $"사용자 선택으로 {KoreanAction(schedule.ActionType)} 동작 실행을 시작했습니다.").ConfigureAwait(false)
                         ?? throw new InvalidOperationException("이미 소비됐거나 실행 중인 전원 예약입니다.");
+                    if (schedule.ActionType == PowerActionType.Shutdown)
+                    {
+                        try
+                        {
+                            registrar.Remove(id);
+                            await RecordShutdownWakeConflictAsync(store, schedule).ConfigureAwait(false);
+                            await shutdownWorkflow.StartPrimaryAsync(schedule, operation).ConfigureAwait(false);
+                        }
+                        catch (Exception error)
+                        {
+                            await store.TryFinalizePowerTransitionAsync(
+                                id,
+                                ScheduleStatus.Failed,
+                                "PowerTransitionFailed",
+                                ResultKind.Failure,
+                                schedule.ScheduledLocalDateTime,
+                                "완전 종료 준비 단계가 실패했습니다.",
+                                [ScheduleStatus.PendingPowerTransition],
+                                "SHUTDOWN_PREPARATION_FAILED").ConfigureAwait(false);
+                            registrar.Remove(id);
+                            logger.Error(
+                                "shutdown.preparation-failed",
+                                error,
+                                $"schedule={id:D};action={schedule.ActionType};operationBefore=Pending;operationAfter=Failed");
+                            throw;
+                        }
+
+                        return 0;
+                    }
+
                     try
                     {
                         registrar.Remove(id);
-                        if (schedule.ActionType == PowerActionType.Shutdown)
-                        {
-                            await RecordShutdownWakeConflictAsync(store, schedule).ConfigureAwait(false);
-                            registrar.RegisterShutdownFallback(id, DateTime.Now + WarningPolicy.ShutdownGracePeriod);
-                        }
-                        else
-                        {
-                            await EnsureNextWakeAsync(store, registrar, id).ConfigureAwait(false);
-                        }
+                        await EnsureNextWakeAsync(store, registrar, id).ConfigureAwait(false);
 
                         await new PowerActionExecutor().ExecuteAsync(schedule.ActionType).ConfigureAwait(false);
-                        if (schedule.ActionType != PowerActionType.Shutdown)
-                        {
-                            await FinalizeResumedPowerTransitionAsync(
-                                store, registrar, logger, schedule, operation.CreatedAtUtc).ConfigureAwait(false);
-                        }
+                        await FinalizeResumedPowerTransitionAsync(
+                            store, registrar, logger, schedule, operation.CreatedAtUtc).ConfigureAwait(false);
                     }
                     catch (Exception error)
                     {
@@ -346,10 +390,7 @@ internal static class HelperProgram
                     {
                         throw new InvalidOperationException("완료 처리된 직전 완전 종료 예약의 30초 fallback만 실행할 수 있습니다.");
                     }
-                    await store.AddHistoryAsync(id, "ShutdownForcedFallback", ResultKind.Warning,
-                        schedule.ScheduledLocalDateTime,
-                        "정상 종료가 30초 안에 완료되지 않아 강제 종료 fallback을 실행했습니다.").ConfigureAwait(false);
-                    await new WindowsShutdownController().ForceShutdownAsync().ConfigureAwait(false);
+                    await shutdownWorkflow.ExecuteFallbackAsync(schedule).ConfigureAwait(false);
                     return 0;
                 }
                 case "skip-schedule":
