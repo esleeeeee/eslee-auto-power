@@ -64,7 +64,16 @@
 - 영어: `artifacts/installer/eslee-auto-power-v1.0.4-en-setup.exe`
   - SHA-256: `E8A943AA81E7E268A258DE235309458F8742D4B4C87D097FFC05BD17DE64EF89`
 
-GitHub Actions가 태그 소스에서 다시 빌드한 공식 릴리스 파일은 게시 후 별도로 내려받아 동봉된 `.sha256` 및 GitHub asset digest와 대조한다.
+## GitHub 공식 릴리스 설치 파일
+
+- GitHub Actions: `30450592460` 성공
+- 정식 릴리스: `v1.0.4` (Draft 아님, Prerelease 아님)
+- 한국어: `eslee-auto-power-v1.0.4-ko-setup.exe`
+  - SHA-256: `C74310212AFF49F1C5398EF9A3D758E3EEEC00480D2B68B623EDDD9497547B34`
+- 영어: `eslee-auto-power-v1.0.4-en-setup.exe`
+  - SHA-256: `2D12EC865B6E40C7EB681CA3CEDE61F3291EB38337E16B226E0E287CFAA7219B`
+
+공식 설치 파일을 다시 내려받아 계산한 SHA-256, 동봉된 `.sha256` 내용과 GitHub asset digest가 양쪽 언어 모두 일치함을 확인했다. 설치 파일의 FileVersion은 `1.0.4.0`, ProductVersion은 `1.0.4`다.
 
 ## 운영 환경 보호 확인
 
