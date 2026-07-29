@@ -1,5 +1,26 @@
 # 변경 이력 / Changelog
 
+## 1.0.4 - 2026-07-29
+
+- 문서화되지 않은 `shutdown.exe /soft` 완전 종료 경로를 제거하고 `InitiateShutdownW` 직접 Win32 호출로 전환
+- SYSTEM Helper에서 `SeShutdownPrivilege`를 명시적으로 활성화하고 `ERROR_NOT_ALL_ASSIGNED`를 포함해 실제 보유·활성화 결과 검증
+- 30초 grace와 `SHUTDOWN_POWEROFF | SHUTDOWN_FORCE_SELF | SHUTDOWN_FORCE_OTHERS`로 계획된 S5 완전 종료 요청, hybrid 종료 제외
+- native DWORD, symbolic error, `FormatMessage`, flags, reason, 호출 시각·경과 시간과 실행 보안 컨텍스트 진단 추가
+- primary 거부 시 최종 실패 처리와 fallback 삭제를 막고 `Compensating + FallbackPending` 상태로 유지
+- fallback 접수는 실제 종료 증거를 기다리고 fallback까지 거부된 경우에만 최종 Failed 처리
+- 실패한 전원 pending operation을 Completed가 아닌 `PendingOperationState.Failed`로 저장
+- 실제 전원 동작 없는 fake native API와 임시 DB 테스트로 오류·privilege·fallback·기존 S3/S4 및 빠른 예약 회귀 검증
+
+## 1.0.4 - English summary
+
+- Replaces the undocumented `shutdown.exe /soft` path with direct `InitiateShutdownW`
+- Explicitly enables and verifies `SeShutdownPrivilege`, including the `ERROR_NOT_ALL_ASSIGNED` case
+- Requests planned S5 power-off with a 30-second grace period, forced self/other sessions, and no hybrid shutdown
+- Preserves native DWORD errors with symbolic names, formatted messages, flags, reason, timing, and security-context diagnostics
+- Keeps the forced fallback after a rejected primary request and finalizes failure only after fallback rejection
+- Stores failed power-operation journals as `PendingOperationState.Failed`
+- Adds fake-native and isolated-database coverage without invoking real power transitions
+
 ## 1.0.3 - 2026-07-23
 
 - `완전 종료` 전용이던 빠른 예약을 `최대 절전`, `절전`까지 포함한 공통 `빠른 설정`으로 확장

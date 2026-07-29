@@ -29,7 +29,7 @@ App-controlled startup after a full shutdown is intentionally not presented or e
 
 ## Quick start
 
-1. Download `eslee-auto-power-v1.0.3-en-setup.exe` from [Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest).
+1. Download `eslee-auto-power-v1.0.4-en-setup.exe` from [Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest).
 2. Open Compatibility and run the two-minute real test for an available S3/S4 path.
 3. In Settings, save and validate the Windows account password. Windows Hello PINs are not supported.
 4. Create a scheduled wake or choose full shutdown, hibernation, or sleep. A new schedule starts with the local date and time at which the editor was opened.
@@ -52,7 +52,8 @@ Selecting full shutdown, hibernation, or sleep in the new-schedule editor shows 
 Full shutdown is the S5 action that turns the PC off. It is separate from waking or booting a PC from S5.
 
 - A warning appears exactly five minutes before the action.
-- At the scheduled time, the app requests a graceful shutdown first and runs a forced fallback if shutdown has not completed within 30 seconds.
+- At the scheduled time, the app uses the documented Windows `InitiateShutdownW` API to request a planned S5 full shutdown with a 30-second grace period. It supports unattended shutdown with other signed-in sessions and does not use hybrid/Fast Startup shutdown.
+- A rejected primary request no longer finalizes the schedule or deletes its watchdog. A separate SYSTEM fallback makes an immediate forced request after 30 seconds, and the schedule becomes failed only if that fallback is also rejected.
 - If a later scheduled wake is active, the app explains that full shutdown prevents it from turning the PC back on. The five-minute warning can switch to the S3/S4 state required by that wake or continue with full shutdown after confirmation.
 
 Hibernation is recommended for a long wait and sleep for a short wait when a later scheduled wake is needed.
@@ -69,7 +70,7 @@ flowchart LR
     F --> G["Launch follow-up programs at T0 + N"]
 ```
 
-Before a scheduled sleep, hibernation, or full shutdown, the app durably stores `ExecutionStarted`, a pending journal, and `PendingPowerTransition`, then consumes the one-time task. After resume or on the next app start, it reconciles Windows power events with Task Scheduler evidence and records completed, failed, missed, or unknown. A past schedule is never assumed successful or run late merely because its time has passed.
+Before a scheduled sleep, hibernation, or full shutdown, the app durably stores `ExecutionStarted`, a pending journal, and `PendingPowerTransition`, then consumes the one-time task. Full shutdown distinguishes primary accepted/rejected and fallback pending/invoked/accepted/rejected in that journal. After resume or on the next app start, it reconciles Windows power events with Task Scheduler evidence and records completed, failed, missed, or unknown. A past schedule is never assumed successful or run late merely because its time has passed.
 
 The application separates responsibilities into three processes:
 
@@ -126,7 +127,7 @@ Requirements:
 dotnet restore .\AutoPower.sln
 dotnet build .\AutoPower.sln -c Release
 dotnet test .\tests\AutoPower.Tests\AutoPower.Tests.csproj -c Release
-.\scripts\Build-Release.ps1 -Version 1.0.3
+.\scripts\Build-Release.ps1 -Version 1.0.4
 ```
 
 Use `-p:AppLanguage=ko` or `-p:AppLanguage=en` for a single-language build. The release script produces self-contained x64 Korean and English installers plus SHA-256 files under `artifacts\installer`.
