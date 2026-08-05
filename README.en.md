@@ -1,156 +1,226 @@
 # eslee Auto Power
 
-> A Windows 11 desktop utility for scheduled wake from S3 sleep or S4 hibernation, scheduled full shutdown/hibernation/sleep, and follow-up programs after resume.
-
-[Download the latest English installer](https://github.com/esleeeeee/eslee-auto-power/releases/latest) · [한국어 설치 파일](https://github.com/esleeeeee/eslee-auto-power/releases/latest)
+eslee Auto Power is a Windows 11 app that can wake your PC at a chosen time or schedule a full shutdown, hibernation, or sleep. It can also launch selected programs after the PC wakes.
 
 Documentation: [한국어](README.md) · **English**
 
-## What does it solve?
+## Download the latest installer
 
-A Windows `WakeToRun` task alone does not guide the user into the correct power state or handle the lock screen and follow-up programs. eslee Auto Power combines that flow into one schedule.
+Open the [latest GitHub Release](https://github.com/esleeeeee/eslee-auto-power/releases/latest) and download the English installer whose name ends in `-en-setup.exe`.
 
-- Choose a wake time and Automatic, S3, or S4 mode.
-- Put the PC into the matching power state from the main screen.
-- At the scheduled time, Windows wakes the session and the app waits for the desktop-ready point `T0`.
-- Follow-up programs run at `T0 + N minutes`.
-- Optional one-time sign-in handling skips the lock screen for the next resume and restores the original setting afterward.
-- A separate power-action schedule can enter full shutdown, hibernation, or sleep at a chosen time.
+`Source code (zip)` and `Source code (tar.gz)` are developer archives, not installers. Most users should run the `-en-setup.exe` file.
 
-## Supported power states
+The app supports Windows 11 x64 only.
 
-| Power state | Scheduled wake | Scheduled transition | Notes |
-|---|---:|---:|---|
-| S3 sleep | Supported | Supported | Requires S3 support from Windows and the PC firmware. |
-| S4 hibernation | Supported | Supported | Requires Windows hibernation to be enabled. |
-| S5 full shutdown | Not supported | Supported | The app can schedule turning the PC off, but cannot turn it back on from a full shutdown. |
+## What you can do
 
-App-controlled startup after a full shutdown is intentionally not presented or emulated. For scheduled wake, leave the PC in **S3 sleep or S4 hibernation**.
+- Wake the PC before work or at another scheduled time
+- Shut down the PC automatically in one or two hours
+- Enter hibernation or sleep at a chosen time
+- Launch selected work apps after the PC wakes
+- Review upcoming schedules and execution results in one place
 
-## Quick start
+![Main screen with the schedule list](docs/images/readme-main.png)
 
-1. Download `eslee-auto-power-v1.0.4-en-setup.exe` from [Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest).
-2. Open Compatibility and run the two-minute real test for an available S3/S4 path.
-3. In Settings, save and validate the Windows account password. Windows Hello PINs are not supported.
-4. Create a scheduled wake or choose full shutdown, hibernation, or sleep. A new schedule starts with the local date and time at which the editor was opened.
-5. Use `Enter S3 sleep now` or `Enter S4 hibernation now` with the same power state as the schedule.
+## First-time setup
 
-Save unsaved work before entering sleep or hibernation.
+A typical scheduled-wake setup looks like this:
 
-## Quick power-transition schedules
+> Install → Check compatibility → Create a schedule → Choose scheduled wake → Set the date and time → Choose sleep or hibernation → Save → Put the PC into the selected state
 
-Selecting full shutdown, hibernation, or sleep in the new-schedule editor shows the same `In 1 hour` and `In 2 hours` quick controls. They stay hidden for scheduled wake.
+1. Install and open eslee Auto Power.
+2. Open `Compatibility` and check whether this PC can wake from sleep or hibernation. Running the available real wake test is recommended.
+3. Open `Schedules` and select `+ New schedule`.
+4. Choose `Scheduled wake` as the action.
+5. Set the date and time.
+6. Choose `Automatic (recommended)`, `Sleep (S3)`, or `Hibernation (S4)`.
+7. Select `Save`.
+8. Follow the prompt to put the PC into the selected power state. You can also do this later with `Enter S3 sleep now` or `Enter S4 hibernation now` on the main screen.
 
-- The calculation starts from the current local time at the exact moment the button is clicked.
-- Midnight, month-end, year-end, and leap-year boundaries are handled by the Windows date calculation.
-- Seconds and milliseconds are normalized to zero, and the date and time remain manually editable.
-- Changing the selected action does not reset the date or time. Clicking a quick control again recalculates from the new click time.
-- The controls only populate the existing date and time fields, so validation and saving use the normal path.
+Save any unsaved work before entering sleep or hibernation.
 
-## Scheduled full shutdown
+![New schedule editor](docs/images/readme-new-schedule.png)
 
-Full shutdown is the S5 action that turns the PC off. It is separate from waking or booting a PC from S5.
+### Optional: app-managed one-time sign-in
 
-- A warning appears exactly five minutes before the action.
-- At the scheduled time, the app uses the documented Windows `InitiateShutdownW` API to request a planned S5 full shutdown with a 30-second grace period. It supports unattended shutdown with other signed-in sessions and does not use hybrid/Fast Startup shutdown.
-- A rejected primary request no longer finalizes the schedule or deletes its watchdog. A separate SYSTEM fallback makes an immediate forced request after 30 seconds, and the schedule becomes failed only if that fallback is also rejected.
-- If a later scheduled wake is active, the app explains that full shutdown prevents it from turning the PC back on. The five-minute warning can switch to the S3/S4 state required by that wake or continue with full shutdown after confirmation.
+Use this only when you want to skip the lock screen once after a scheduled wake. It is not required for normal installation or scheduling.
 
-Hibernation is recommended for a long wait and sleep for a short wait when a later scheduled wake is needed.
+- Account setup is needed only for schedules that enable `App-managed one-time sign-in`.
+- In `Settings`, save and validate the Windows user name and **Windows account password**.
+- Windows Hello PINs are never stored or used.
+- The option applies to the next resume only and is best suited to a physically secure PC.
+
+## Wake the PC at a scheduled time
+
+Saving a wake schedule is only the first part. Before the scheduled time, leave the PC in the same sleep or hibernation mode selected by the schedule.
+
+1. Select `+ New schedule`, then choose `Scheduled wake`.
+2. Set the date, time, and power mode, then select `Save`.
+3. On the main screen, use the matching `Enter S3 sleep now` or `Enter S4 hibernation now` button.
+4. Windows wakes the PC at the scheduled time.
+5. After the desktop is ready, linked programs run using their configured order and delay.
+
+`Automatic (recommended)` chooses an available mode using the compatibility results. If you select a specific mode, use the matching button on the main screen.
+
+A fully shut-down PC cannot be turned back on by this app. Leave the PC in sleep or hibernation when you need scheduled wake.
+
+## Schedule shutdown, hibernation, or sleep
+
+1. Select `+ New schedule`.
+2. Choose `Full shutdown at scheduled time`, `Enter hibernation at scheduled time`, or `Enter sleep at scheduled time`.
+3. Set the date and time, then select `Save`.
+
+When any of these three actions is selected, the editor also shows `In 1 hour` and `In 2 hours`. The selected offset is calculated from the local time when you click the button, and you can still edit the date and time before saving.
+
+A warning appears five minutes before a scheduled power action. Closing the warning or leaving it unanswered keeps the original schedule.
+
+## Quickly schedule shutdown from the tray
+
+The quick commands also work while the main window is closed and the app is running only in the system tray.
+
+1. Right-click the eslee Auto Power icon in the Windows notification area.
+2. Select `Shut down in 1 hour` or `Shut down in 2 hours`.
+3. The full-shutdown schedule is created without a confirmation dialog.
+4. A tray notification shows the actual scheduled time.
+
+These commands do not shut down the PC immediately. They create a full-shutdown schedule for the selected time later.
+
+## Run programs after the PC wakes
+
+You can attach follow-up programs to a scheduled wake.
+
+1. Create or edit a scheduled wake.
+2. Under `Run after resume`, select `+ Add`.
+3. Choose the executable and a delay after the desktop becomes ready.
+4. If needed, open `Advanced options` and enable `Run as administrator`.
+
+The delay starts when the Windows desktop is actually ready, not at the planned wake time. Multiple programs can use the same delay, and one failed program does not stop the others.
+
+Use administrator access only for programs you trust.
+
+## Which power state should you choose?
+
+| What you need | Recommended choice | What to know |
+|---|---|---|
+| You will be away briefly and want a quick return | Sleep (S3) | Resumes quickly but continues to use some power. Supported PCs can use it for scheduled wake. |
+| You will be away for several hours and need a later scheduled wake | Hibernation (S4) | Uses very little power and preserves your session. Windows hibernation and PC support are required. |
+| You do not need another scheduled wake and want the PC fully off | Full shutdown (S5) | The app cannot turn the PC back on from this state. |
+
+Available sleep modes vary by PC, so check `Compatibility` before creating your first wake schedule.
+
+![Compatibility diagnostics screen](docs/images/readme-compatibility.png)
+
+## Important notes
+
+- Windows 11 x64 is required.
+- Scheduled wake can depend on PC firmware, Windows wake-timer settings, and vendor power policies.
+- If hibernation is unavailable, Windows hibernation may be disabled or unsupported on the PC.
+- A scheduled wake cannot turn the PC back on after full shutdown.
+- Check for unsaved work before sleep, hibernation, or full shutdown.
+- Release installers are currently unsigned, so Windows SmartScreen may display a warning.
+- With `App-managed one-time sign-in`, manually waking the PC before the schedule may also skip the lock screen.
 
 ## How it works
 
+### Scheduled wake
+
 ```mermaid
-flowchart LR
-    A["Save schedule"] --> B["Register Windows WakeToRun task"]
-    B --> C["Enter S3 sleep or S4 hibernation"]
-    C --> D["Windows wakes at the scheduled time"]
-    D --> E["Confirm user session and Explorer are ready"]
-    E --> F["Set T0"]
-    F --> G["Launch follow-up programs at T0 + N"]
+flowchart TD
+    A["Create a scheduled wake"] --> B["Choose sleep or hibernation"]
+    B --> C["Windows wakes the PC at the scheduled time"]
+    C --> D["Confirm that the desktop is ready"]
+    D --> E["Launch selected programs"]
 ```
 
-Before a scheduled sleep, hibernation, or full shutdown, the app durably stores `ExecutionStarted`, a pending journal, and `PendingPowerTransition`, then consumes the one-time task. Full shutdown distinguishes primary accepted/rejected and fallback pending/invoked/accepted/rejected in that journal. After resume or on the next app start, it reconciles Windows power events with Task Scheduler evidence and records completed, failed, missed, or unknown. A past schedule is never assumed successful or run late merely because its time has passed.
+### Scheduled power action
 
-The application separates responsibilities into three processes:
+```mermaid
+flowchart TD
+    A["Create a power schedule"] --> B["Choose full shutdown, hibernation, or sleep"]
+    B --> C["Show a warning before the scheduled time"]
+    C --> D["Run the selected power action at the scheduled time"]
+```
 
-- `AutoPower.App.exe`: standard-user WPF UI, tray, schedules, history, and settings
-- `AutoPower.Helper.exe`: user-approved elevated power transitions and app-owned task registration
-- `AutoPower.Agent.exe`: resume readiness and follow-up program execution in the user session
+For details about schedule storage, Windows task registration, and recovery, see the [architecture documentation](docs/architecture.md).
 
-Task Scheduler changes are limited to the app-owned `\eslee\AutoPower\` folder. Tasks owned by other software are not modified.
+## Troubleshooting
 
-## App-managed one-time sign-in
+### The PC did not wake at the scheduled time
 
-Windows may require a password after S3/S4 resume. When a schedule enables app-managed one-time sign-in, the app temporarily disables the Windows `require sign-in on wake` value for the next resume only.
+- Make sure the schedule mode matches the button used to put the PC into sleep or hibernation.
+- Open `Compatibility` and run the real wake test again for that mode.
+- Laptop wake-timer behavior may change depending on whether external power is connected.
+- Check the sleep and wake settings in the PC manufacturer's BIOS or UEFI.
 
-- The Windows account password is stored in Credential Manager and an app-specific LSA protected secret.
-- A Microsoft account email is normalized automatically.
-- Windows Hello PINs are never stored or used.
-- Original AC/DC sign-in requirement values are restored and verified after resume.
-- If a process is interrupted, journal-based recovery retries during the next wake task, app start, sign-in, or uninstall.
+### Sleep or hibernation is unavailable
 
-If the PC is woken manually before the schedule, that resume may also open without a lock screen. Use this option only on a physically secure PC.
+Open `Compatibility` to see which states the PC currently supports. If hibernation is disabled, you may need to enable the Windows hibernation feature using the instructions shown by the app. The app does not change that setting automatically.
 
-## Follow-up programs and elevation
+### Windows asks for a password after wake
 
-Programs run relative to the actual desktop-ready time `T0`, not the planned wake time. Multiple programs may use the same delay, and one failure does not stop the rest.
+This is normal Windows lock-screen behavior. Sign in to continue. If one future wake must skip the lock screen, enable `App-managed one-time sign-in` for that schedule and register the Windows account password in `Settings`. Windows Hello PINs cannot be used for this option.
 
-For a program that requires elevation, open Advanced options and select `Run as administrator`. The app pre-registers a highest-privilege task while saving the schedule, so the resumed desktop does not wait for a UAC prompt. Use this only for trusted programs.
+### Windows SmartScreen displays a warning
 
-## Compatibility and limitations
+The installer is not currently code-signed. First confirm that the file came from the official [GitHub Releases](https://github.com/esleeeeee/eslee-auto-power/releases/latest) page, then use `More info` to decide whether to run it.
 
-- Operating system: Windows 11 x64
-- S3 requires firmware support for that state.
-- S4 requires both firmware support and Windows hibernation.
-- The app never enables hibernation without consent. When needed, it explains how to run `powercfg /hibernate on` in an elevated terminal.
-- Actual results may depend on UEFI power policy, Windows wake-timer settings, and vendor firmware.
-- Release installers are currently unsigned, so Windows SmartScreen may display a warning.
+### A schedule could not be created or executed
 
-Compatibility is not marked as confirmed from capability detection alone. Only a successful real S3/S4 wake test records `Confirmed supported`; the same screen also reports whether app-managed one-time sign-in credentials have been validated.
+Open `History` in the app to review the failure. For more detail, use `Open diagnostic log folder` in `Settings` or `About`. Logs are stored under `%ProgramData%\eslee\AutoPower\logs`. Review user names and executable paths before sharing a log publicly.
 
-## Local data and privacy
+For general bugs, open a [GitHub Issue](https://github.com/esleeeeee/eslee-auto-power/issues) with the steps needed to reproduce the problem. Do not post passwords, account names, or unreviewed diagnostic logs.
 
-Schedules, execution history, recovery journals, and diagnostics are stored under `%ProgramData%\eslee\AutoPower`. Passwords are never stored in the plain-text database or logs; Windows-protected storage is used. The app contains no analytics, advertising, or external telemetry transport.
+## Privacy and local data
 
-Diagnostic logs may include local details needed for troubleshooting, such as task results, error codes, and executable paths. Review them before attaching them to a public issue. See [Privacy](PRIVACY.md) for details.
+eslee Auto Power operates locally. It has no analytics, advertising, external telemetry, or automatic crash upload.
 
-## Building from source
+- Schedules, history, compatibility results, and diagnostics are stored under `%ProgramData%\eslee\AutoPower`.
+- A Windows account password registered for the optional sign-in feature stays in Windows-protected storage and is never written in plain text to the SQLite database or logs.
+- Diagnostic logs may include local troubleshooting details such as error codes and executable paths.
 
-Requirements:
+See [Privacy](PRIVACY.md) and the [Security policy](SECURITY.md) for details.
+
+## Developer documentation and build
+
+Technical documentation:
+
+- [Architecture](docs/architecture.md)
+- [Verification results](docs/verification.md)
+- [Changelog](CHANGELOG.md)
+- [Security policy](SECURITY.md)
+- [Privacy](PRIVACY.md)
+
+Build requirements:
 
 - Windows 11 x64
 - .NET SDK 10.0.301
-- Inno Setup 6 for installers
+- Inno Setup 6 when building installers
 
 ```powershell
 dotnet restore .\AutoPower.sln
 dotnet build .\AutoPower.sln -c Release
 dotnet test .\tests\AutoPower.Tests\AutoPower.Tests.csproj -c Release
-.\scripts\Build-Release.ps1 -Version 1.0.4
 ```
 
-Use `-p:AppLanguage=ko` or `-p:AppLanguage=en` for a single-language build. The release script produces self-contained x64 Korean and English installers plus SHA-256 files under `artifacts\installer`.
+Use `-p:AppLanguage=ko` or `-p:AppLanguage=en` for a single-language build. Specify the release version when creating installers.
 
-## Repository layout
+```powershell
+$releaseVersion = "x.y.z"
+.\scripts\Build-Release.ps1 -Version $releaseVersion
+```
+
+Repository layout:
 
 ```text
 src/AutoPower.App       WPF UI and tray
-src/AutoPower.Core      Models, policies, validation, localization
+src/AutoPower.Core      Schedule models, policies, validation, localization
 src/AutoPower.Data      SQLite storage
-src/AutoPower.Windows   Task Scheduler, power, credentials, recovery
+src/AutoPower.Windows   Windows integrations
 src/AutoPower.Helper    Elevated command runner
 src/AutoPower.Agent     Resume and follow-up program handling
 tests/AutoPower.Tests   Automated tests
 installer               Inno Setup definition
 ```
-
-## More information
-
-- [Changelog](CHANGELOG.md)
-- [Security policy](SECURITY.md)
-- [Privacy](PRIVACY.md)
-- [GitHub Issues](https://github.com/esleeeeee/eslee-auto-power/issues)
 
 ## License
 

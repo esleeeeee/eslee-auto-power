@@ -1,5 +1,19 @@
 # 변경 이력 / Changelog
 
+## Unreleased
+
+- 시스템 트레이 최상위에 `1시간 후 완전 종료`, `2시간 후 완전 종료`를 추가하고 한 번의 메뉴 클릭으로 S5 완전 종료 예약 생성
+- v1.0.3의 공용 빠른 시간 정책과 기존 `ScheduleCoordinator` 저장·검증·Task 등록·기록 경로를 재사용
+- 처리 중 두 메뉴를 비활성화하고 동시 클릭을 gate로 차단하며, 성공·실패를 한국어/영어 비차단 트레이 알림과 진단 로그로 표시
+- 실제 전원 API나 운영 Task Scheduler를 호출하지 않는 임시 SQLite·fake Helper 회귀 테스트 추가
+
+## Unreleased - English summary
+
+- Adds top-level `Shut down in 1 hour` and `Shut down in 2 hours` tray commands that create an S5 shutdown schedule with one menu click
+- Reuses the v1.0.3 quick-time policy and the existing coordinator validation, SQLite, Task Scheduler registration, and history pipeline
+- Gates concurrent clicks, temporarily disables both commands, and reports localized success or failure through non-blocking tray notifications and technical logs
+- Adds isolated SQLite and fake-helper regression coverage without invoking real power APIs or production Task Scheduler entries
+
 ## 1.0.4 - 2026-07-29
 
 - 문서화되지 않은 `shutdown.exe /soft` 완전 종료 경로를 제거하고 `InitiateShutdownW` 직접 Win32 호출로 전환

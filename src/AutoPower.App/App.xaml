@@ -12,6 +12,9 @@
         <SolidColorBrush x:Key="MutedBrush" Color="#AAB4C0" />
         <SolidColorBrush x:Key="AccentBrush" Color="#4AA8FF" />
         <SolidColorBrush x:Key="DangerBrush" Color="#FF657A" />
+        <SolidColorBrush x:Key="GridHoverBrush" Color="#2A323D" />
+        <SolidColorBrush x:Key="GridSelectionBrush" Color="#2D5F9A" />
+        <SolidColorBrush x:Key="GridSelectionInactiveBrush" Color="#3A4656" />
 
         <Style TargetType="Window">
             <Setter Property="Background" Value="{StaticResource WindowBrush}" />
@@ -101,9 +104,31 @@
             <Setter Property="Background" Value="#222830" /><Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" /><Setter Property="Padding" Value="10,6" />
         </Style>
+        <!-- Cells stay transparent so the row alone owns hover/selection colors; the explicit
+             Background/BorderBrush setters also block the WPF theme's SystemColors selection
+             triggers that otherwise paint selected cells with a light system brush. -->
         <Style TargetType="DataGridCell">
             <Setter Property="BorderThickness" Value="0" /><Setter Property="Padding" Value="10,6" />
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+        <Style TargetType="DataGridRow">
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource GridHoverBrush}" />
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{StaticResource GridSelectionBrush}" />
+                </Trigger>
+                <MultiTrigger>
+                    <MultiTrigger.Conditions>
+                        <Condition Property="IsSelected" Value="True" />
+                        <Condition Property="Selector.IsSelectionActive" Value="False" />
+                    </MultiTrigger.Conditions>
+                    <Setter Property="Background" Value="{StaticResource GridSelectionInactiveBrush}" />
+                </MultiTrigger>
+            </Style.Triggers>
         </Style>
         <Style TargetType="CheckBox"><Setter Property="Foreground" Value="{StaticResource TextBrush}" /></Style>
         <Style TargetType="RadioButton"><Setter Property="Foreground" Value="{StaticResource TextBrush}" /></Style>
