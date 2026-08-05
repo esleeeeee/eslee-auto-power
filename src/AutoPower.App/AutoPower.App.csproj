@@ -21,4 +21,8 @@
     <Resource Include="Assets\eslee-auto-power.png" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="AutoPower.Tests" />
+  </ItemGroup>
+
 </Project>
