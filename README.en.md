@@ -90,7 +90,7 @@ These commands do not shut down the PC immediately. They create a full-shutdown 
 You can attach follow-up programs to a scheduled wake.
 
 1. Create or edit a scheduled wake.
-2. Under `Follow-up programs`, select `+ Add`.
+2. Under `Run after resume`, select `+ Add`.
 3. Choose the executable and a delay after the desktop becomes ready.
 4. If needed, open `Advanced options` and enable `Run as administrator`.
 
