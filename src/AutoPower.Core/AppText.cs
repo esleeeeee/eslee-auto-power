@@ -201,6 +201,7 @@ public static class AppText
         ("완전 종료 예약 생성 완료", "Shutdown scheduled"),
         ("완전 종료 예약 생성 실패", "Unable to schedule shutdown"),
         ("완전 종료가 {0:t}으로 예약되었습니다.", "Shutdown scheduled for {0:t}."),
+        ("완전 종료가 {0:t}으로 예약되었습니다. 화면을 새로고치지 못했지만 예약은 정상적으로 저장되었습니다.", "Shutdown is scheduled for {0:t}. The schedule was saved, but the screen could not be refreshed."),
         ("완전 종료 예약을 만들지 못했습니다. 진단 로그에서 자세한 내용을 확인할 수 있습니다.", "The shutdown schedule could not be created. Check the diagnostic logs for details."),
         ("모든 예약 일시 중지", "Pause all schedules"),
         ("다음 예약: 확인 중", "Next schedule: checking"),
