@@ -55,40 +55,61 @@ internal sealed class TrayQuickShutdownController
         BusyChanged?.Invoke(true);
         try
         {
-            var scheduledLocalTime = ScheduleTimePolicy.QuickPowerTransition(_localNow(), hours);
-            var schedule = PowerSchedule.Create(scheduledLocalTime, PowerActionType.Shutdown);
-            var validation = await _saveScheduleAsync(schedule, cancellationToken);
-            if (!validation.IsValid)
+            DateTime scheduledLocalTime;
+            PowerSchedule schedule;
+            try
             {
-                var technicalDetail = string.Join(
-                    " | ",
-                    validation.Issues.Select(issue => $"{issue.Code}: {issue.Message}"));
-                _logWarning("tray.quick-shutdown.validation-failed", technicalDetail);
+                scheduledLocalTime = ScheduleTimePolicy.QuickPowerTransition(_localNow(), hours);
+                schedule = PowerSchedule.Create(scheduledLocalTime, PowerActionType.Shutdown);
+                var validation = await _saveScheduleAsync(schedule, cancellationToken);
+                if (!validation.IsValid)
+                {
+                    var technicalDetail = string.Join(
+                        " | ",
+                        validation.Issues.Select(issue => $"{issue.Code}: {issue.Message}"));
+                    _logWarning("tray.quick-shutdown.validation-failed", technicalDetail);
+                    _showNotification(
+                        AppText.T("완전 종료 예약 생성 실패"),
+                        string.Join(Environment.NewLine, validation.Issues.Select(issue => AppText.T(issue.Message))),
+                        true);
+                    return TrayQuickShutdownOutcome.ValidationFailed;
+                }
+            }
+            catch (Exception error)
+            {
+                _logError("tray.quick-shutdown.failed", error);
                 _showNotification(
                     AppText.T("완전 종료 예약 생성 실패"),
-                    string.Join(Environment.NewLine, validation.Issues.Select(issue => AppText.T(issue.Message))),
+                    AppText.T("완전 종료 예약을 만들지 못했습니다. 진단 로그에서 자세한 내용을 확인할 수 있습니다."),
                     true);
-                return TrayQuickShutdownOutcome.ValidationFailed;
+                return TrayQuickShutdownOutcome.Failed;
             }
 
-            await _refreshAsync();
+            // The schedule and its Task Scheduler entry are durably committed at this point.
+            // A refresh failure must never be reported as a failed schedule and must not
+            // trigger a second save, so the user sees exactly one accurate notification.
             _logInformation(
                 "tray.quick-shutdown.created",
                 $"schedule={schedule.Id:D}; hours={hours}; localTime={scheduledLocalTime:O}; action={schedule.ActionType}");
+            try
+            {
+                await _refreshAsync();
+            }
+            catch (Exception refreshError)
+            {
+                _logError("tray.quick-shutdown.refresh-failed", refreshError);
+                _showNotification(
+                    AppText.T("완전 종료 예약 생성 완료"),
+                    AppText.F("완전 종료가 {0:t}으로 예약되었습니다. 화면을 새로고치지 못했지만 예약은 정상적으로 저장되었습니다.", scheduledLocalTime),
+                    false);
+                return TrayQuickShutdownOutcome.Created;
+            }
+
             _showNotification(
                 AppText.T("완전 종료 예약 생성 완료"),
                 AppText.F("완전 종료가 {0:t}으로 예약되었습니다.", scheduledLocalTime),
                 false);
             return TrayQuickShutdownOutcome.Created;
-        }
-        catch (Exception error)
-        {
-            _logError("tray.quick-shutdown.failed", error);
-            _showNotification(
-                AppText.T("완전 종료 예약 생성 실패"),
-                AppText.T("완전 종료 예약을 만들지 못했습니다. 진단 로그에서 자세한 내용을 확인할 수 있습니다."),
-                true);
-            return TrayQuickShutdownOutcome.Failed;
         }
         finally
         {
