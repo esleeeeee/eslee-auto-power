@@ -39,6 +39,8 @@ public partial class MainWindow : Window
 
     public void ShowNewSchedule() => _ = ShowEditorAsync(null);
 
+    public Task RefreshFromTrayAsync() => RefreshAsync();
+
     public async Task PauseAllAsync()
     {
         try
