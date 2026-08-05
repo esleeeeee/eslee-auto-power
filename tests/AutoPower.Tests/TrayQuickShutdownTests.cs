@@ -8,6 +8,7 @@ namespace AutoPower.Tests;
 public sealed class TrayQuickShutdownTests
 {
     private static readonly bool[] ExpectedBusyStates = [true, false];
+    private static readonly bool[] ExpectedBusyStatesForTwoRuns = [true, false, true, false];
     private static readonly TrayMenuCommand[] ExpectedTrayMenuCommands =
     [
         TrayMenuCommand.QuickShutdown,
@@ -192,22 +193,100 @@ public sealed class TrayQuickShutdownTests
     {
         var notifications = new List<Notification>();
         var errors = new List<Exception>();
+        var refreshCount = 0;
         var injected = new InvalidOperationException("injected task registration failure");
         var controller = CreateController(
             (_, _) => Task.FromException<ValidationResult>(injected),
             new DateTime(2030, 4, 5, 15, 26, 42),
             notifications,
+            () =>
+            {
+                refreshCount++;
+                return Task.CompletedTask;
+            },
             error: (_, exception) => errors.Add(exception));
 
         var outcome = await controller.ExecuteAsync(2);
 
         Assert.AreEqual(TrayQuickShutdownOutcome.Failed, outcome);
+        Assert.AreEqual(0, refreshCount);
         Assert.IsTrue(notifications.Single().IsError);
         Assert.AreEqual(AppText.T("완전 종료 예약 생성 실패"), notifications.Single().Title);
         Assert.AreEqual(
             AppText.T("완전 종료 예약을 만들지 못했습니다. 진단 로그에서 자세한 내용을 확인할 수 있습니다."),
             notifications.Single().Message);
         Assert.AreSame(injected, errors.Single());
+    }
+
+    [TestMethod]
+    public async Task RefreshFailureAfterSuccessfulSaveReportsSavedScheduleOnce()
+    {
+        await using var database = await SqliteStoreTests.TestDatabase.CreateAsync();
+        var helper = new FakeHelper();
+        var coordinator = new ScheduleCoordinator(database.Store, helper);
+        var clicked = CurrentMinuteWithSubMinutePrecision();
+        var notifications = new List<Notification>();
+        var loggedErrors = new List<(string EventName, Exception Error)>();
+        var refreshFailure = new InvalidOperationException("injected refresh failure");
+        var refreshCount = 0;
+        var controller = CreateController(
+            coordinator.SaveAsync,
+            clicked,
+            notifications,
+            () =>
+            {
+                refreshCount++;
+                return Task.FromException(refreshFailure);
+            },
+            error: (eventName, exception) => loggedErrors.Add((eventName, exception)));
+
+        var outcome = await controller.ExecuteAsync(1);
+
+        Assert.AreEqual(TrayQuickShutdownOutcome.Created, outcome);
+        var schedule = (await database.Store.GetAllSchedulesAsync()).Single();
+        Assert.AreEqual(ScheduleTimePolicy.QuickPowerTransition(clicked, 1), schedule.ScheduledLocalDateTime);
+        Assert.AreEqual(1, helper.RunCount);
+        Assert.AreEqual(1, refreshCount);
+        var notification = notifications.Single();
+        Assert.IsFalse(notification.IsError);
+        Assert.AreEqual(AppText.T("완전 종료 예약 생성 완료"), notification.Title);
+        Assert.AreEqual(
+            AppText.F(
+                "완전 종료가 {0:t}으로 예약되었습니다. 화면을 새로고치지 못했지만 예약은 정상적으로 저장되었습니다.",
+                schedule.ScheduledLocalDateTime),
+            notification.Message);
+        var logged = loggedErrors.Single();
+        Assert.AreEqual("tray.quick-shutdown.refresh-failed", logged.EventName);
+        Assert.AreSame(refreshFailure, logged.Error);
+        Assert.IsFalse(controller.IsBusy);
+    }
+
+    [TestMethod]
+    public async Task MenuRemainsUsableAfterRefreshFailure()
+    {
+        var refreshAttempts = 0;
+        var busyStates = new List<bool>();
+        var notifications = new List<Notification>();
+        var controller = CreateController(
+            (_, _) => Task.FromResult(ValidationResult.Success),
+            new DateTime(2030, 4, 5, 15, 26, 42),
+            notifications,
+            () => ++refreshAttempts == 1
+                ? Task.FromException(new InvalidOperationException("injected refresh failure"))
+                : Task.CompletedTask);
+        controller.BusyChanged += busyStates.Add;
+
+        var first = await controller.ExecuteAsync(1);
+        var second = await controller.ExecuteAsync(2);
+
+        Assert.AreEqual(TrayQuickShutdownOutcome.Created, first);
+        Assert.AreEqual(TrayQuickShutdownOutcome.Created, second);
+        Assert.AreEqual(2, refreshAttempts);
+        Assert.IsFalse(controller.IsBusy);
+        CollectionAssert.AreEqual(ExpectedBusyStatesForTwoRuns, busyStates);
+        Assert.HasCount(2, notifications);
+        Assert.IsFalse(notifications[0].IsError);
+        Assert.IsFalse(notifications[1].IsError);
     }
 
     [TestMethod]
@@ -258,6 +337,13 @@ public sealed class TrayQuickShutdownTests
                 ? $"Shutdown scheduled for {localizedTime}."
                 : $"완전 종료가 {localizedTime}으로 예약되었습니다.",
             AppText.F("완전 종료가 {0:t}으로 예약되었습니다.", scheduled));
+        Assert.AreEqual(
+            AppText.IsEnglish
+                ? $"Shutdown is scheduled for {localizedTime}. The schedule was saved, but the screen could not be refreshed."
+                : $"완전 종료가 {localizedTime}으로 예약되었습니다. 화면을 새로고치지 못했지만 예약은 정상적으로 저장되었습니다.",
+            AppText.F(
+                "완전 종료가 {0:t}으로 예약되었습니다. 화면을 새로고치지 못했지만 예약은 정상적으로 저장되었습니다.",
+                scheduled));
     }
 
     [TestMethod]
@@ -325,9 +411,12 @@ public sealed class TrayQuickShutdownTests
     {
         public IReadOnlyList<string>? LastArguments { get; private set; }
 
+        public int RunCount { get; private set; }
+
         public Task RunAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken = default)
         {
             LastArguments = arguments;
+            RunCount++;
             return Task.CompletedTask;
         }
     }
