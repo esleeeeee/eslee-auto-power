@@ -1,18 +1,38 @@
 # 변경 이력 / Changelog
 
-## Unreleased
+## 1.0.5 - 2026-08-05
+
+### Added
 
 - 시스템 트레이 최상위에 `1시간 후 완전 종료`, `2시간 후 완전 종료`를 추가하고 한 번의 메뉴 클릭으로 S5 완전 종료 예약 생성
-- v1.0.3의 공용 빠른 시간 정책과 기존 `ScheduleCoordinator` 저장·검증·Task 등록·기록 경로를 재사용
-- 처리 중 두 메뉴를 비활성화하고 동시 클릭을 gate로 차단하며, 성공·실패를 한국어/영어 비차단 트레이 알림과 진단 로그로 표시
-- 실제 전원 API나 운영 Task Scheduler를 호출하지 않는 임시 SQLite·fake Helper 회귀 테스트 추가
+- v1.0.3의 공용 빠른 시간 정책과 기존 `ScheduleCoordinator` 저장·검증·Task 등록·기록 경로를 재사용하고, 처리 중 두 메뉴를 비활성화하며 동시 클릭을 gate로 차단
 
-## Unreleased - English summary
+### Changed
 
-- Adds top-level `Shut down in 1 hour` and `Shut down in 2 hours` tray commands that create an S5 shutdown schedule with one menu click
-- Reuses the v1.0.3 quick-time policy and the existing coordinator validation, SQLite, Task Scheduler registration, and history pipeline
-- Gates concurrent clicks, temporarily disables both commands, and reports localized success or failure through non-blocking tray notifications and technical logs
-- Adds isolated SQLite and fake-helper regression coverage without invoking real power APIs or production Task Scheduler entries
+- 일반 사용자를 중심으로 한국어·영어 README 전면 개편, 실제 앱 화면 스크린샷(메인·새 예약·호환성) 추가, 내부 구현 세부사항은 기술 문서로 이동
+- 예약 목록 선택 상태를 다크 테마에 맞게 개선 — hover·선택 활성·선택 비활성 배경을 앱 전용 브러시로 명시하고 모든 행 상태에서 WCAG 4.5:1 이상 대비를 자동 테스트로 고정
+
+### Fixed
+
+- 수정 창 복귀 후 선택 행이 WPF 기본 밝은 선택 배경 위에 밝은 글자로 표시되어 읽을 수 없던 문제
+- 트레이 예약 저장 성공 후 화면 새로고침만 실패했는데 예약 생성 실패로 안내하던 문제 — 저장 성공 후에는 재저장 없이 예약 저장 성공과 새로고침 실패를 정확히 1회 안내
+
+## 1.0.5 - English summary
+
+### Added
+
+- Top-level tray commands `Shut down in 1 hour` and `Shut down in 2 hours` that create an S5 shutdown schedule with one menu click
+- Reuses the v1.0.3 quick-time policy and the existing coordinator validation, SQLite, Task Scheduler registration, and history pipeline, disabling both commands and gating concurrent clicks while busy
+
+### Changed
+
+- User-focused rewrite of the Korean and English READMEs with real app screenshots (main, new schedule, compatibility); implementation details moved to the technical docs
+- Schedule-list selection styling aligned with the dark theme — explicit hover, active-selection, and inactive-selection brushes with WCAG 4.5:1 contrast pinned by automated tests for every row state
+
+### Fixed
+
+- Selected schedule rows became unreadable (light system selection background under light text) after returning from the edit window
+- The tray quick schedule reported a creation failure when only the post-save screen refresh failed; it now reports exactly once that the schedule was saved and only the refresh failed, without re-saving
 
 ## 1.0.4 - 2026-07-29
 
