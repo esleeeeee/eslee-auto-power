@@ -20,6 +20,8 @@ The app supports Windows 11 x64 only.
 - Launch selected work apps after the PC wakes
 - Review upcoming schedules and execution results in one place
 
+![Main screen with the schedule list](docs/images/readme-main.png)
+
 ## First-time setup
 
 A typical scheduled-wake setup looks like this:
@@ -36,6 +38,8 @@ A typical scheduled-wake setup looks like this:
 8. Follow the prompt to put the PC into the selected power state. You can also do this later with `Enter S3 sleep now` or `Enter S4 hibernation now` on the main screen.
 
 Save any unsaved work before entering sleep or hibernation.
+
+![New schedule editor](docs/images/readme-new-schedule.png)
 
 ### Optional: app-managed one-time sign-in
 
@@ -103,6 +107,8 @@ Use administrator access only for programs you trust.
 | You do not need another scheduled wake and want the PC fully off | Full shutdown (S5) | The app cannot turn the PC back on from this state. |
 
 Available sleep modes vary by PC, so check `Compatibility` before creating your first wake schedule.
+
+![Compatibility diagnostics screen](docs/images/readme-compatibility.png)
 
 ## Important notes
 
