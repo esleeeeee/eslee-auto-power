@@ -42,6 +42,7 @@ Helper의 Task 등록은 예약별 기존 앱 작업을 먼저 제거한 뒤 새
 - `Shutdown`, `Hibernate`, `Sleep`을 각각 완전 종료·최대 절전·절전으로 제공한다.
 - 새 예약의 최초 시각은 편집기를 연 현재 로컬 시각을 분 단위로 정규화한 값이다. 기존 예약 수정에서는 저장 시각을 그대로 사용한다.
 - Shutdown, Hibernate, Sleep 선택에서는 공통 1시간·2시간 빠른 설정을 제공하고 자동 시작에서는 숨긴다. 클릭 시점의 로컬 시각에서 계산해 기존 날짜·시간 입력만 갱신하므로 동작 종류와 기존 저장 경로는 바뀌지 않는다.
+- 트레이 최상위의 1시간·2시간 완전 종료 메뉴도 같은 `ScheduleTimePolicy.QuickPowerTransition`으로 시각을 계산하고 `PowerActionType.Shutdown` 모델을 기존 `ScheduleCoordinator.SaveAsync`에 전달한다. 따라서 검증, SQLite 저장, Task Scheduler 등록, 생성 기록과 UI 새로고침 경로가 편집기 저장과 동일하며 트레이에서 Helper나 전원 API를 직접 호출하지 않는다. 비동기 처리 중에는 두 빠른 메뉴를 함께 잠그고 동시 클릭은 단일 gate에서 무시한다.
 - 세 동작 모두 5분 전 사용자 세션 경고와 예약 시각 SYSTEM `execute-power` 작업을 등록한다.
 - `execute-power`는 전원 API를 호출하기 전에 한 SQLite 트랜잭션으로 `ExecutionStarted`, `PendingOperations.PowerTransition`, 예약의 `PendingPowerTransition/비활성` 상태를 먼저 기록한다.
 - durable 기록이 commit된 뒤 현재 `power-{scheduleId}` Task를 비활성화한다. 동일 Task가 다시 호출돼도 DB 조건부 전이가 실패하므로 같은 1회성 예약을 두 번 실행할 수 없다.

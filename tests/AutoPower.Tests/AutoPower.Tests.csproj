@@ -19,6 +19,7 @@
     <ProjectReference Include="..\..\src\AutoPower.Core\AutoPower.Core.csproj" />
     <ProjectReference Include="..\..\src\AutoPower.Data\AutoPower.Data.csproj" />
     <ProjectReference Include="..\..\src\AutoPower.Windows\AutoPower.Windows.csproj" />
+    <ProjectReference Include="..\..\src\AutoPower.App\AutoPower.App.csproj" />
   </ItemGroup>
 
 </Project>
