@@ -10,6 +10,7 @@ namespace AutoPower.App;
 public partial class App : System.Windows.Application
 {
     private TrayService? _tray;
+    private TrayHostLink? _trayHostLink;
     private MainWindow? _mainWindow;
 
     protected override async void OnStartup(StartupEventArgs e)
@@ -79,6 +80,18 @@ public partial class App : System.Windows.Application
             MainWindow = _mainWindow;
             _tray = new TrayService(_mainWindow);
             _mainWindow.AttachTray(_tray);
+            _trayHostLink = new TrayHostLink(
+                TrayHostLink.BuildDefaultPipeName(),
+                Environment.ProcessId,
+                visible => Dispatcher.InvokeAsync(() => _tray?.SetTrayIconVisible(visible)).Task,
+                () => Dispatcher.InvokeAsync(() => _mainWindow?.ShowFromTray()).Task,
+                () => Dispatcher.InvokeAsync(
+                    () => _tray?.BuildHostedMenuItems() ?? []).Task,
+                actionId => Dispatcher.InvokeAsync(
+                    () => _tray?.TryStartMenuAction(actionId) ?? false).Task,
+                AppServices.Logger.Information,
+                (eventName, error) => AppServices.Logger.Error(eventName, error));
+            _trayHostLink.Start();
             _mainWindow.Show();
 
             if (e.Args.Length == 1 && string.Equals(e.Args[0], "tray", StringComparison.OrdinalIgnoreCase))
@@ -105,6 +118,8 @@ public partial class App : System.Windows.Application
 
     public void ExitApplication()
     {
+        _trayHostLink?.Dispose();
+        _trayHostLink = null;
         _tray?.Dispose();
         if (_mainWindow is not null)
         {
