@@ -1,5 +1,29 @@
 # 변경 이력 / Changelog
 
+## 1.0.6 - 2026-08-11
+
+### Added
+
+- eslee Tray Folder 연동: Named Pipe로 Tray Folder에 연결해 실행 상태를 알리고, Hosted 모드에서는 자체 트레이 아이콘을 숨긴 채 Tray Folder가 대신 관리
+- Tray Folder 타일 좌클릭으로 창 열기, 우클릭으로 기존 트레이 메뉴(빠른 완전 종료·다음 예약·앱 열기·새 예약·일시 중지·종료)를 동일하게 사용
+- Tray Folder 종료나 연결 끊김 시 자체 트레이 아이콘 자동 복구, 재연결 시 저장된 모드 재적용
+
+### Changed
+
+- 아이콘이 숨겨진 Hosted 상태에서 오류 알림은 풍선 대신 대화 상자로 표시해 실패가 무음으로 사라지지 않게 함
+
+## 1.0.6 - English summary
+
+### Added
+
+- eslee Tray Folder integration over a Named Pipe: reports run state, and hosted mode hides the app's own tray icon while Tray Folder manages it
+- Tray Folder tile left-click opens the window; right-click serves the existing tray menu (quick shutdown, next schedule, open, new schedule, pause all, exit)
+- The tray icon restores automatically when Tray Folder exits or the connection drops, and the saved mode reapplies on reconnect
+
+### Changed
+
+- While the icon is hidden in hosted mode, error notifications fall back to a dialog so failures are never silent
+
 ## 1.0.5 - 2026-08-05
 
 ### Added
