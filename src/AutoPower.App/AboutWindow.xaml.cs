@@ -19,6 +19,49 @@ public partial class AboutWindow : Window
         RuntimeValue.Text = $"{RuntimeInformation.ProcessArchitecture} · .NET {Environment.Version}";
         DataDirectoryValue.Text = AppPaths.SharedStateDirectory;
         LogDirectoryValue.Text = AppPaths.LogDirectory;
+
+        ShowUpdateStatus(AppServices.Updates.Latest);
+        AppServices.Updates.Updated += Updates_Changed;
+        Closed += (_, _) => AppServices.Updates.Updated -= Updates_Changed;
+    }
+
+    private void Updates_Changed(UpdateCheckResult result) =>
+        Dispatcher.BeginInvoke(() => ShowUpdateStatus(result));
+
+    private void ShowUpdateStatus(UpdateCheckResult? result)
+    {
+        UpdateStatusValue.Text = result switch
+        {
+            null => AppText.T("업데이트를 아직 확인하지 않았습니다."),
+            { Status: UpdateCheckStatus.UpdateAvailable, LatestVersion: { } latest } =>
+                AppText.F("새 버전 v{0}을 사용할 수 있습니다.", latest.ToString(3)),
+            { Status: UpdateCheckStatus.UpToDate } => AppText.T("최신 버전을 사용하고 있습니다."),
+            _ => AppText.T("업데이트 확인에 실패했습니다. 네트워크 연결을 확인하세요.")
+        };
+        UpdateStatusValue.Foreground = result?.Status == UpdateCheckStatus.UpdateAvailable
+            ? (System.Windows.Media.Brush)FindResource("AccentBrush")
+            : (System.Windows.Media.Brush)FindResource("MutedBrush");
+    }
+
+    private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        CheckUpdateButton.IsEnabled = false;
+        UpdateStatusValue.Text = AppText.T("업데이트 확인 중…");
+        try
+        {
+            var result = await AppServices.Updates.CheckNowAsync();
+            ShowUpdateStatus(result);
+        }
+        finally
+        {
+            CheckUpdateButton.IsEnabled = true;
+        }
+    }
+
+    private void OpenReleases_Click(object sender, RoutedEventArgs e)
+    {
+        var url = AppServices.Updates.Latest?.ReleaseUrl ?? UpdateCheckPolicy.ReleasesPageUrl;
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true })?.Dispose();
     }
 
     private static string GetDisplayVersion()

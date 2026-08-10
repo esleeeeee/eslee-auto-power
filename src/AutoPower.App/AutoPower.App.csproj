@@ -4,6 +4,12 @@
     <ProjectReference Include="..\AutoPower.Core\AutoPower.Core.csproj" />
     <ProjectReference Include="..\AutoPower.Data\AutoPower.Data.csproj" />
     <ProjectReference Include="..\AutoPower.Windows\AutoPower.Windows.csproj" />
+    <!-- InstallationLayout resolves AutoPower.Helper.exe and AutoPower.Agent.exe next to the
+         app executable. Referencing both exe projects keeps every build output (not just the
+         installer publish layout) shaped like the installed app, so schedule saves can always
+         launch the elevated helper. -->
+    <ProjectReference Include="..\AutoPower.Helper\AutoPower.Helper.csproj" />
+    <ProjectReference Include="..\AutoPower.Agent\AutoPower.Agent.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
