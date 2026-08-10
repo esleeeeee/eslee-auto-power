@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Windows;
 using AutoPower.Core;
 using AutoPower.Data;
@@ -92,6 +93,7 @@ public partial class App : System.Windows.Application
                 AppServices.Logger.Information,
                 (eventName, error) => AppServices.Logger.Error(eventName, error));
             _trayHostLink.Start();
+            AppServices.Updates.Start();
             _mainWindow.Show();
 
             if (e.Args.Length == 1 && string.Equals(e.Args[0], "tray", StringComparison.OrdinalIgnoreCase))
@@ -118,6 +120,7 @@ public partial class App : System.Windows.Application
 
     public void ExitApplication()
     {
+        AppServices.Updates.Dispose();
         _trayHostLink?.Dispose();
         _trayHostLink = null;
         _tray?.Dispose();
@@ -148,6 +151,11 @@ internal static class AppServices
     public static ElevatedHelperClient Helper { get; } = new(Layout.HelperPath);
     public static CredentialManager Credentials { get; } = new();
     public static ScheduleCoordinator Coordinator { get; } = new(Store, Helper);
+    public static UpdateCheckService Updates { get; } = new(
+        UpdateCheckPolicy.ParseCurrentVersion(
+            typeof(App).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
+            typeof(App).Assembly.GetName().Version),
+        Logger.Information);
 
     public static async Task InitializeAsync()
     {
