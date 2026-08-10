@@ -1,5 +1,25 @@
 # 변경 이력 / Changelog
 
+## 1.0.7 - 2026-08-10
+
+### Added
+
+- 정보 창에 업데이트 확인 추가: 현재 버전을 표시하고 GitHub 최신 정식 릴리스와 비교해 최신 상태 또는 업데이트 가능 버전을 안내하며, 수동 확인과 Release 페이지 열기 버튼 제공 — 시작 시 비동기 확인과 24시간 주기 확인 지원, draft·prerelease 제외, 네트워크 실패는 앱 기능에 영향 없음
+
+### Fixed
+
+- 설치 폴더가 아닌 빌드 출력에서 앱을 실행하면 `AutoPower.Helper.exe`를 찾지 못해 앱 내부·자체 트레이·Tray Folder의 완전 종료 예약 생성이 모두 실패하던 문제 — App이 Helper와 Agent 프로젝트를 참조해 모든 빌드 출력이 설치 레이아웃과 동일하게 두 실행 파일을 동봉 (설치본은 영향 없음)
+
+## 1.0.7 - English summary
+
+### Added
+
+- Update check in the About window: shows the current version, compares it with the latest official GitHub release, and offers manual checks plus an open-release-page button — async check at startup with a 24-hour interval, drafts and prereleases excluded, and network failures never affect app features
+
+### Fixed
+
+- Running the app from a build output instead of the install folder could not find `AutoPower.Helper.exe`, so full-shutdown schedule creation failed from the editor, the app's own tray, and Tray Folder — the app project now references the Helper and Agent projects so every build output ships both executables exactly like the installed layout (installed copies were unaffected)
+
 ## 1.0.6 - 2026-08-11
 
 ### Added
