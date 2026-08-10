@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.5"
+  #define MyAppVersion "1.0.7"
 #endif
 #ifndef MyAppLanguage
   #define MyAppLanguage "ko"
