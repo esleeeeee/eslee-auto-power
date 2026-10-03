@@ -1,5 +1,7 @@
 # eslee Auto Power
 
+Current release preparation: **v1.0.8** — [changes, validation and limits](.github/release-notes/v1.0.8.md).
+
 eslee Auto Power is a Windows 11 app that can wake your PC at a chosen time or schedule a full shutdown, hibernation, or sleep. It can also launch selected programs after the PC wakes.
 
 Documentation: [한국어](README.md) · **English**

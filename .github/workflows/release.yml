@@ -9,10 +9,17 @@ on:
       version:
         description: Release version without the v prefix
         required: true
-        default: 1.0.7
+        default: 1.0.8
 
 permissions:
   contents: write
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1'
+  DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build-release:
@@ -33,26 +40,45 @@ jobs:
       - name: Resolve version
         id: version
         shell: pwsh
+        env:
+          RELEASE_INPUT: ${{ inputs.version }}
         run: |
           if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
-            $version = '${{ inputs.version }}'
+            $version = $env:RELEASE_INPUT
           } else {
-            $version = '${{ github.ref_name }}'.TrimStart('v')
+            $version = $env:GITHUB_REF_NAME.TrimStart('v')
           }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid release version.' }
+          $source = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version | Where-Object { $_ }
+          if ($version -ne $source) { throw 'Tag/input must match source version.' }
+          if (-not (Test-Path ".github/release-notes/v$version.md")) { throw 'Missing release notes.' }
           "version=$version" >> $env:GITHUB_OUTPUT
 
       - name: Build, test, and package Korean and English editions
         shell: pwsh
         run: .\scripts\Build-Release.ps1 -Version '${{ steps.version.outputs.version }}'
 
-      - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+      - name: Record release provenance
+        shell: pwsh
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          ./scripts/Write-ReleaseManifest.ps1 -Version $version -AssetPaths @("artifacts/installer/eslee-auto-power-v$version-ko-setup.exe", "artifacts/installer/eslee-auto-power-v$version-en-setup.exe") -VerifiedChecks @('Korean safe tests', 'English safe tests', 'Korean/English publish and Inno installers')
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: eslee Auto Power v${{ steps.version.outputs.version }}
-          body_path: .github/release-notes/v${{ steps.version.outputs.version }}.md
-          files: |
-            artifacts/installer/eslee-auto-power-v${{ steps.version.outputs.version }}-ko-setup.exe
-            artifacts/installer/eslee-auto-power-v${{ steps.version.outputs.version }}-ko-setup.exe.sha256
-            artifacts/installer/eslee-auto-power-v${{ steps.version.outputs.version }}-en-setup.exe
-            artifacts/installer/eslee-auto-power-v${{ steps.version.outputs.version }}-en-setup.exe.sha256
+          name: release-${{ steps.version.outputs.version }}
+          path: |
+            artifacts/installer/
+            artifacts/release-manifest-*.json
+            artifacts/SHA256SUMS-*.txt
+
+      - name: Create new GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $assets = @("artifacts/installer/eslee-auto-power-v$version-ko-setup.exe", "artifacts/installer/eslee-auto-power-v$version-ko-setup.exe.sha256", "artifacts/installer/eslee-auto-power-v$version-en-setup.exe", "artifacts/installer/eslee-auto-power-v$version-en-setup.exe.sha256", "artifacts/release-manifest-v$version.json", "artifacts/SHA256SUMS-v$version.txt")
+          gh release create "v$version" --verify-tag --title "eslee Auto Power v$version" --notes-file ".github/release-notes/v$version.md" @assets
+          if ($LASTEXITCODE -ne 0) { throw 'Release creation failed; existing releases are never overwritten.' }
