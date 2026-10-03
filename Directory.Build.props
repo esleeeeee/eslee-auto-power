@@ -5,8 +5,8 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
-    <ApplicationVersion>1.0.7.0</ApplicationVersion>
-    <Version>1.0.7</Version>
+    <ApplicationVersion>1.0.8.0</ApplicationVersion>
+    <Version>1.0.8</Version>
     <AppLanguage Condition="'$(AppLanguage)' == ''">ko</AppLanguage>
     <Company>eslee</Company>
     <Product>eslee Auto Power</Product>

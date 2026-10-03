@@ -280,13 +280,8 @@ public partial class ScheduleEditorWindow : Window
             var nextWake = ScheduleValidator.SelectNextWake(
                 _schedules.Where(schedule => schedule.Id != _existing?.Id),
                 planned);
-            var warning = nextWake is null
-                ? AppText.IsEnglish
-                    ? "After a full shutdown, this app cannot turn the PC back on for a scheduled wake. To use scheduled wake later, leave the PC in sleep or hibernation instead.\n\nSave this full-shutdown schedule anyway?"
-                    : "완전히 종료된 PC는 앱의 자동 시작 예약으로 다시 켤 수 없습니다. 이후 자동 시작을 사용하려면 PC를 절전 또는 최대 절전 상태로 두어야 합니다.\n\n그래도 완전 종료 예약을 저장하시겠습니까?"
-                : AppText.IsEnglish
-                    ? $"A scheduled wake exists at {nextWake.ScheduledLocalDateTime:MMM dd HH:mm}. A full shutdown prevents that wake from turning the PC back on. Hibernation is recommended for a long wait, and sleep for a short wait.\n\nSave this full-shutdown schedule anyway?"
-                    : $"{nextWake.ScheduledLocalDateTime:MM월 dd일 HH:mm}에 다음 자동 시작 예약이 있습니다. PC를 완전히 종료하면 해당 시각에 자동으로 다시 시작할 수 없습니다. 장시간 대기는 최대 절전, 짧은 대기는 절전을 권장합니다.\n\n그래도 완전 종료 예약을 저장하시겠습니까?";
+            var warning = ShutdownConsequence.Describe(nextWake) + "\n\n" +
+                (AppText.IsEnglish ? "Save this full-shutdown schedule anyway?" : "그래도 완전 종료 예약을 저장하시겠습니까?");
             if (MessageBox.Show(
                     warning,
                     AppText.T("완전 종료 예약 확인"),

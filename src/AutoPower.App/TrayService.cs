@@ -26,7 +26,8 @@ public sealed class TrayService : IDisposable
                 isError ? Forms.ToolTipIcon.Error : Forms.ToolTipIcon.Info),
             AppServices.Logger.Information,
             AppServices.Logger.Warning,
-            (eventName, error) => AppServices.Logger.Error(eventName, error));
+            (eventName, error) => AppServices.Logger.Error(eventName, error),
+            getSchedulesAsync: AppServices.Store.GetAllSchedulesAsync);
         _quickShutdown.BusyChanged += QuickShutdown_BusyChanged;
 
         var menu = CreateMenu(window);
