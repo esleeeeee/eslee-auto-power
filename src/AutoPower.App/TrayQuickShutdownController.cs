@@ -19,6 +19,7 @@ internal sealed class TrayQuickShutdownController
     private readonly Action<string, string> _logWarning;
     private readonly Action<string, Exception> _logError;
     private readonly Func<DateTime> _localNow;
+    private readonly Func<CancellationToken, Task<IReadOnlyList<PowerSchedule>>> _getSchedulesAsync;
     private int _busy;
 
     public TrayQuickShutdownController(
@@ -28,7 +29,8 @@ internal sealed class TrayQuickShutdownController
         Action<string, string> logInformation,
         Action<string, string> logWarning,
         Action<string, Exception> logError,
-        Func<DateTime>? localNow = null)
+        Func<DateTime>? localNow = null,
+        Func<CancellationToken, Task<IReadOnlyList<PowerSchedule>>>? getSchedulesAsync = null)
     {
         _saveScheduleAsync = saveScheduleAsync ?? throw new ArgumentNullException(nameof(saveScheduleAsync));
         _refreshAsync = refreshAsync ?? throw new ArgumentNullException(nameof(refreshAsync));
@@ -37,6 +39,7 @@ internal sealed class TrayQuickShutdownController
         _logWarning = logWarning ?? throw new ArgumentNullException(nameof(logWarning));
         _logError = logError ?? throw new ArgumentNullException(nameof(logError));
         _localNow = localNow ?? (() => DateTime.Now);
+        _getSchedulesAsync = getSchedulesAsync ?? (_ => Task.FromResult<IReadOnlyList<PowerSchedule>>([]));
     }
 
     public bool IsBusy => Volatile.Read(ref _busy) != 0;
@@ -57,10 +60,13 @@ internal sealed class TrayQuickShutdownController
         {
             DateTime scheduledLocalTime;
             PowerSchedule schedule;
+            var consequence = string.Empty;
             try
             {
                 scheduledLocalTime = ScheduleTimePolicy.QuickPowerTransition(_localNow(), hours);
                 schedule = PowerSchedule.Create(scheduledLocalTime, PowerActionType.Shutdown);
+                var nextWake = ScheduleValidator.SelectNextWake(await _getSchedulesAsync(cancellationToken), scheduledLocalTime);
+                if (nextWake is not null) consequence = Environment.NewLine + ShutdownConsequence.Describe(nextWake);
                 var validation = await _saveScheduleAsync(schedule, cancellationToken);
                 if (!validation.IsValid)
                 {
@@ -100,14 +106,14 @@ internal sealed class TrayQuickShutdownController
                 _logError("tray.quick-shutdown.refresh-failed", refreshError);
                 _showNotification(
                     AppText.T("완전 종료 예약 생성 완료"),
-                    AppText.F("완전 종료가 {0:t}으로 예약되었습니다. 화면을 새로고치지 못했지만 예약은 정상적으로 저장되었습니다.", scheduledLocalTime),
+                    AppText.F("완전 종료가 {0:t}으로 예약되었습니다. 화면을 새로고치지 못했지만 예약은 정상적으로 저장되었습니다.", scheduledLocalTime) + consequence,
                     false);
                 return TrayQuickShutdownOutcome.Created;
             }
 
             _showNotification(
                 AppText.T("완전 종료 예약 생성 완료"),
-                AppText.F("완전 종료가 {0:t}으로 예약되었습니다.", scheduledLocalTime),
+                AppText.F("완전 종료가 {0:t}으로 예약되었습니다.", scheduledLocalTime) + consequence,
                 false);
             return TrayQuickShutdownOutcome.Created;
         }
