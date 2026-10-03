@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.7"
+  #define MyAppVersion "1.0.8"
 #endif
 #ifndef MyAppLanguage
   #define MyAppLanguage "ko"
@@ -46,7 +46,13 @@ UninstallDisplayIcon={app}\AutoPower.App.exe
 #if MyAppLanguage == "en"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 #else
+#if FileExists(CompilerPath + "\Languages\Korean.isl")
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
+#elif FileExists(CompilerPath + "\Languages\Unofficial\Korean.isl")
+Name: "korean"; MessagesFile: "compiler:Languages\Unofficial\Korean.isl"
+#else
+Name: "english"; MessagesFile: "compiler:Default.isl"
+#endif
 #endif
 
 [Dirs]

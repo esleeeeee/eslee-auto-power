@@ -24,6 +24,26 @@ public sealed class TrayQuickShutdownTests
     ];
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task LaterWakeConsequenceIsShownEvenWhenRefreshFails(bool refreshFails)
+    {
+        var now = new DateTime(2030, 4, 5, 12, 0, 30);
+        var wake = PowerSchedule.Create(now.AddHours(3), PowerActionType.WakeFromSleep);
+        var notifications = new List<string>();
+        var saves = 0;
+        var controller = new TrayQuickShutdownController(
+            (_, _) => { saves++; return Task.FromResult(ValidationResult.Success); },
+            () => refreshFails ? Task.FromException(new InvalidOperationException("refresh")) : Task.CompletedTask,
+            (_, message, _) => notifications.Add(message), (_, _) => { }, (_, _) => { }, (_, _) => { },
+            () => now, _ => Task.FromResult<IReadOnlyList<PowerSchedule>>([wake]));
+        Assert.AreEqual(TrayQuickShutdownOutcome.Created, await controller.ExecuteAsync(1));
+        Assert.AreEqual(1, saves);
+        Assert.HasCount(1, notifications);
+        StringAssert.Contains(notifications[0], AppText.IsEnglish ? "scheduled wake" : "자동 시작 예약");
+    }
+
+    [TestMethod]
     [DataRow(1)]
     [DataRow(2)]
     public async Task TrayQuickMenuCreatesShutdownThroughExistingCoordinator(int hours)

@@ -100,13 +100,22 @@ public sealed class ScheduleValidatorTests
     }
 
     [TestMethod]
-    public void NewScheduleDefaultUsesCurrentLocalMinute()
+    public void NewScheduleDefaultIsValidWithoutForcingTomorrow()
     {
         var opened = new DateTime(2026, 7, 22, 23, 47, 59, 999, DateTimeKind.Local);
 
         var result = ScheduleTimePolicy.NewScheduleDefault(opened);
 
-        Assert.AreEqual(new DateTime(2026, 7, 22, 23, 47, 0, DateTimeKind.Unspecified), result);
+        Assert.AreEqual(new DateTime(2026, 7, 22, 23, 52, 0, DateTimeKind.Unspecified), result);
+    }
+
+    [TestMethod]
+    public void NewScheduleDefaultCrossesMidnightNaturally()
+    {
+        var opened = new DateTime(2026, 12, 31, 23, 59, 59);
+        var result = ScheduleTimePolicy.NewScheduleDefault(opened);
+        Assert.AreEqual(new DateTime(2027, 1, 1, 0, 4, 0), result);
+        Assert.IsTrue(ScheduleValidator.Validate(Create(result, PowerActionType.Shutdown), opened, []).IsValid);
     }
 
     [TestMethod]

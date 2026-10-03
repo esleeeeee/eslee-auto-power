@@ -119,7 +119,7 @@ public static class CompatibilityCapabilities
 public static class ScheduleTimePolicy
 {
     public static DateTime NewScheduleDefault(DateTime openedAtLocal) =>
-        NormalizeToMinute(openedAtLocal);
+        NormalizeToMinute(openedAtLocal.AddMinutes(5));
 
     public static DateTime QuickPowerTransition(DateTime clickedAtLocal, int hours)
     {
