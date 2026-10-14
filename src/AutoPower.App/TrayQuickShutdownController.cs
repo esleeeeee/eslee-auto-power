@@ -46,10 +46,22 @@ internal sealed class TrayQuickShutdownController
 
     public event Action<bool>? BusyChanged;
 
-    public async Task<TrayQuickShutdownOutcome> ExecuteAsync(
+    public Task<TrayQuickShutdownOutcome> ExecuteAsync(
         int hours,
+        CancellationToken cancellationToken = default) =>
+        ExecuteAsync(PowerActionType.Shutdown, hours * 60, cancellationToken);
+
+    /// <summary>Creates a full shutdown, hibernate or sleep schedule <paramref name="minutes"/> from now.</summary>
+    public async Task<TrayQuickShutdownOutcome> ExecuteAsync(
+        PowerActionType action,
+        int minutes,
         CancellationToken cancellationToken = default)
     {
+        if (!QuickSchedulePolicy.IsSupportedAction(action))
+        {
+            throw new ArgumentOutOfRangeException(nameof(action));
+        }
+
         if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
         {
             return TrayQuickShutdownOutcome.IgnoredWhileBusy;
@@ -63,10 +75,14 @@ internal sealed class TrayQuickShutdownController
             var consequence = string.Empty;
             try
             {
-                scheduledLocalTime = ScheduleTimePolicy.QuickPowerTransition(_localNow(), hours);
-                schedule = PowerSchedule.Create(scheduledLocalTime, PowerActionType.Shutdown);
-                var nextWake = ScheduleValidator.SelectNextWake(await _getSchedulesAsync(cancellationToken), scheduledLocalTime);
-                if (nextWake is not null) consequence = Environment.NewLine + ShutdownConsequence.Describe(nextWake);
+                scheduledLocalTime = QuickSchedulePolicy.At(_localNow(), minutes);
+                schedule = PowerSchedule.Create(scheduledLocalTime, action);
+                if (action == PowerActionType.Shutdown)
+                {
+                    var nextWake = ScheduleValidator.SelectNextWake(await _getSchedulesAsync(cancellationToken), scheduledLocalTime);
+                    if (nextWake is not null) consequence = Environment.NewLine + ShutdownConsequence.Describe(nextWake);
+                }
+
                 var validation = await _saveScheduleAsync(schedule, cancellationToken);
                 if (!validation.IsValid)
                 {
@@ -75,7 +91,7 @@ internal sealed class TrayQuickShutdownController
                         validation.Issues.Select(issue => $"{issue.Code}: {issue.Message}"));
                     _logWarning("tray.quick-shutdown.validation-failed", technicalDetail);
                     _showNotification(
-                        AppText.T("완전 종료 예약 생성 실패"),
+                        FailedTitle(action),
                         string.Join(Environment.NewLine, validation.Issues.Select(issue => AppText.T(issue.Message))),
                         true);
                     return TrayQuickShutdownOutcome.ValidationFailed;
@@ -85,8 +101,10 @@ internal sealed class TrayQuickShutdownController
             {
                 _logError("tray.quick-shutdown.failed", error);
                 _showNotification(
-                    AppText.T("완전 종료 예약 생성 실패"),
-                    AppText.T("완전 종료 예약을 만들지 못했습니다. 진단 로그에서 자세한 내용을 확인할 수 있습니다."),
+                    FailedTitle(action),
+                    action == PowerActionType.Shutdown
+                        ? AppText.T("완전 종료 예약을 만들지 못했습니다. 진단 로그에서 자세한 내용을 확인할 수 있습니다.")
+                        : AppText.F("{0} 예약을 만들지 못했습니다. 진단 로그에서 자세한 내용을 확인할 수 있습니다.", ActionName(action)),
                     true);
                 return TrayQuickShutdownOutcome.Failed;
             }
@@ -96,7 +114,7 @@ internal sealed class TrayQuickShutdownController
             // trigger a second save, so the user sees exactly one accurate notification.
             _logInformation(
                 "tray.quick-shutdown.created",
-                $"schedule={schedule.Id:D}; hours={hours}; localTime={scheduledLocalTime:O}; action={schedule.ActionType}");
+                $"schedule={schedule.Id:D}; minutes={minutes}; localTime={scheduledLocalTime:O}; action={schedule.ActionType}");
             try
             {
                 await _refreshAsync();
@@ -105,15 +123,19 @@ internal sealed class TrayQuickShutdownController
             {
                 _logError("tray.quick-shutdown.refresh-failed", refreshError);
                 _showNotification(
-                    AppText.T("완전 종료 예약 생성 완료"),
-                    AppText.F("완전 종료가 {0:t}으로 예약되었습니다. 화면을 새로고치지 못했지만 예약은 정상적으로 저장되었습니다.", scheduledLocalTime) + consequence,
+                    CreatedTitle(action),
+                    (action == PowerActionType.Shutdown
+                        ? AppText.F("완전 종료가 {0:t}으로 예약되었습니다. 화면을 새로고치지 못했지만 예약은 정상적으로 저장되었습니다.", scheduledLocalTime)
+                        : AppText.F("{0}이 {1:t}으로 예약되었습니다. 화면을 새로고치지 못했지만 예약은 정상적으로 저장되었습니다.", ActionName(action), scheduledLocalTime)) + consequence,
                     false);
                 return TrayQuickShutdownOutcome.Created;
             }
 
             _showNotification(
-                AppText.T("완전 종료 예약 생성 완료"),
-                AppText.F("완전 종료가 {0:t}으로 예약되었습니다.", scheduledLocalTime) + consequence,
+                CreatedTitle(action),
+                (action == PowerActionType.Shutdown
+                    ? AppText.F("완전 종료가 {0:t}으로 예약되었습니다.", scheduledLocalTime)
+                    : AppText.F("{0}이 {1:t}으로 예약되었습니다.", ActionName(action), scheduledLocalTime)) + consequence,
                 false);
             return TrayQuickShutdownOutcome.Created;
         }
@@ -123,4 +145,15 @@ internal sealed class TrayQuickShutdownController
             BusyChanged?.Invoke(false);
         }
     }
+
+    private static string ActionName(PowerActionType action) =>
+        AppText.T(action == PowerActionType.Hibernate ? "최대 절전" : "절전");
+
+    private static string CreatedTitle(PowerActionType action) => action == PowerActionType.Shutdown
+        ? AppText.T("완전 종료 예약 생성 완료")
+        : AppText.F("{0} 예약 생성 완료", ActionName(action));
+
+    private static string FailedTitle(PowerActionType action) => action == PowerActionType.Shutdown
+        ? AppText.T("완전 종료 예약 생성 실패")
+        : AppText.F("{0} 예약 생성 실패", ActionName(action));
 }

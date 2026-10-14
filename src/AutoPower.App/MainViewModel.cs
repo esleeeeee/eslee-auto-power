@@ -1,25 +1,64 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Windows.Data;
+using AutoPower.App.Controls;
 using AutoPower.Core;
 
 namespace AutoPower.App;
 
+public enum HistoryResultFilter
+{
+    All,
+    Success,
+    Failure,
+    Skipped,
+    Warning,
+    Information
+}
+
 public sealed class MainViewModel : INotifyPropertyChanged
 {
+    internal const string AttentionAcknowledgedKey = "attention-acknowledged-utc";
+
     private ScheduleRow? _selectedSchedule;
     private string _statusMessage = "준비됨";
     private string? _securityWarning;
+    private string _historySearch = string.Empty;
+    private HistoryResultFilter _historyResultFilter = HistoryResultFilter.All;
+    private ScheduleRow? _historyScheduleFilter;
+    private string? _attentionText;
+    private DateTimeOffset? _attentionLatestUtc;
+    private DateTime _now = DateTime.Now;
+
+    public MainViewModel()
+    {
+        HistoryView = CollectionViewSource.GetDefaultView(History);
+        HistoryView.Filter = item => item is HistoryRow row && MatchesHistoryFilter(row);
+    }
 
     public ObservableCollection<ScheduleRow> Schedules { get; } = [];
     public ObservableCollection<HistoryRow> History { get; } = [];
+    public ICollectionView HistoryView { get; }
+    public ObservableCollection<HistoryRow> SelectedScheduleHistory { get; } = [];
     public ObservableCollection<CompatibilityRow> Compatibility { get; } = [];
 
     public ScheduleRow? SelectedSchedule
     {
         get => _selectedSchedule;
-        set { _selectedSchedule = value; OnPropertyChanged(); }
+        set
+        {
+            _selectedSchedule = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasSelectedSchedule));
+            OnPropertyChanged(nameof(SelectedRemainingText));
+            RefreshSelectedScheduleHistory();
+        }
     }
+
+    public bool HasSelectedSchedule => SelectedSchedule is not null;
+    public bool HasSchedules => Schedules.Count > 0;
 
     public string StatusMessage
     {
@@ -35,8 +74,43 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public bool HasSecurityWarning => !string.IsNullOrWhiteSpace(SecurityWarning);
 
-    public string NextScheduleSummary => Schedules.FirstOrDefault(row =>
-        row.Schedule.IsEnabled && row.Schedule.Status == ScheduleStatus.Pending)?.Summary ?? AppText.T("없음");
+    // ----- Next action (hero card + tray tooltip) -----
+
+    public ScheduleRow? NextSchedule => Schedules.FirstOrDefault(row =>
+        row.Schedule.IsEnabled && row.Schedule.Status == ScheduleStatus.Pending);
+
+    public bool HasNextSchedule => NextSchedule is not null;
+
+    public string NextScheduleSummary => NextSchedule is { } next
+        ? $"{UiText.When(next.Schedule.ScheduledLocalDateTime, _now)} {next.ActionText}"
+        : AppText.T("없음");
+
+    public string NextWhenText => NextSchedule is { } next
+        ? $"{UiText.When(next.Schedule.ScheduledLocalDateTime, _now)} · {next.ActionText}"
+        : AppText.T("예정된 동작이 없습니다");
+
+    public string NextDetailText => NextSchedule is { } next
+        ? string.Join(" · ", new[] { UiText.Remaining(next.Schedule.ScheduledLocalDateTime, _now), next.NameText }
+            .Where(part => !string.IsNullOrWhiteSpace(part)))
+        : AppText.T("새 예약을 만들면 여기에서 다음 동작과 남은 시간을 확인할 수 있습니다.");
+
+    public string NextGlyph => NextSchedule?.ActionGlyph ?? Glyphs.Clock;
+
+    public string SelectedRemainingText => SelectedSchedule is { } row && row.Schedule.IsEnabled
+        ? UiText.Remaining(row.Schedule.ScheduledLocalDateTime, _now)
+        : AppText.T("꺼져 있음");
+
+    /// <summary>Short text for the tray icon tooltip (Windows limits it to 127 characters).</summary>
+    public string TrayTooltip
+    {
+        get
+        {
+            var text = NextSchedule is { } next
+                ? $"eslee Auto Power\n{UiText.When(next.Schedule.ScheduledLocalDateTime, _now)} {next.ActionText} ({UiText.Remaining(next.Schedule.ScheduledLocalDateTime, _now)})"
+                : "eslee Auto Power";
+            return text.Length <= 127 ? text : text[..127];
+        }
+    }
 
     public PowerSchedule? NextPendingWakeSchedule => Schedules
         .Select(row => row.Schedule)
@@ -45,33 +119,102 @@ public sealed class MainViewModel : INotifyPropertyChanged
             schedule.Status == ScheduleStatus.Pending &&
             PowerSchedulePolicy.IsWakeSchedule(schedule.ActionType));
 
+    public bool HasPausedSchedules => Schedules.Any(row => !row.Schedule.IsEnabled);
+    public bool HasActiveSchedules => Schedules.Any(row => row.Schedule.IsEnabled);
+
+    // ----- Attention banner (missed / failed runs since last acknowledgement) -----
+
+    public string? AttentionText
+    {
+        get => _attentionText;
+        private set { _attentionText = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasAttention)); }
+    }
+
+    public bool HasAttention => !string.IsNullOrWhiteSpace(AttentionText);
+
+    public DateTimeOffset? AttentionLatestUtc => _attentionLatestUtc;
+
+    // ----- History filters -----
+
+    public string HistorySearch
+    {
+        get => _historySearch;
+        set { _historySearch = value ?? string.Empty; OnPropertyChanged(); RefreshHistoryView(); }
+    }
+
+    public HistoryResultFilter HistoryResultFilter
+    {
+        get => _historyResultFilter;
+        set { _historyResultFilter = value; OnPropertyChanged(); RefreshHistoryView(); }
+    }
+
+    public ScheduleRow? HistoryScheduleFilter
+    {
+        get => _historyScheduleFilter;
+        set
+        {
+            _historyScheduleFilter = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(HasHistoryScheduleFilter));
+            OnPropertyChanged(nameof(HistoryScheduleFilterText));
+            RefreshHistoryView();
+        }
+    }
+
+    public bool HasHistoryScheduleFilter => HistoryScheduleFilter is not null;
+
+    public string HistoryScheduleFilterText => HistoryScheduleFilter is { } row
+        ? AppText.F("이 예약만: {0}", row.TitleText)
+        : string.Empty;
+
+    public bool HistoryIsEmpty => HistoryView.IsEmpty;
+
+    /// <summary>Called every 30 seconds so countdowns stay current.</summary>
+    public void Tick()
+    {
+        _now = DateTime.Now;
+        OnPropertyChanged(nameof(NextWhenText));
+        OnPropertyChanged(nameof(NextDetailText));
+        OnPropertyChanged(nameof(NextScheduleSummary));
+        OnPropertyChanged(nameof(SelectedRemainingText));
+        OnPropertyChanged(nameof(TrayTooltip));
+    }
+
     public async Task RefreshAsync()
     {
-        var selectedId = SelectedSchedule?.Schedule.Id;
+        _now = DateTime.Now;
+        var selectedKey = SelectedSchedule?.SeriesKey;
+        var historyFilterKey = HistoryScheduleFilter?.SeriesKey;
         var allSchedules = await AppServices.Store.GetAllSchedulesAsync();
         var hiddenScheduleIds = allSchedules
             .Where(schedule => PowerSchedulePolicy.IsRemovedSchedule(schedule.ActionType))
             .Select(schedule => schedule.Id)
             .ToHashSet();
         var schedules = allSchedules
-            .Where(schedule => schedule.ScheduledLocalDateTime > DateTime.Now &&
+            .Where(schedule => schedule.ScheduledLocalDateTime > _now &&
                                schedule.Status is ScheduleStatus.Pending or ScheduleStatus.Disabled &&
                                !PowerSchedulePolicy.IsRemovedSchedule(schedule.ActionType))
             .OrderBy(schedule => schedule.ScheduledLocalDateTime);
         Schedules.Clear();
         foreach (var schedule in schedules)
         {
-            Schedules.Add(new ScheduleRow(schedule));
+            Schedules.Add(new ScheduleRow(schedule, allSchedules));
         }
 
-        SelectedSchedule = Schedules.FirstOrDefault(row => row.Schedule.Id == selectedId);
         History.Clear();
-        foreach (var item in (await AppServices.Store.GetHistoryAsync()).Where(item =>
-                     !(item.ScheduleId is Guid id && hiddenScheduleIds.Contains(id)) &&
-                     !IsRemovedFeatureHistory(item.EventType)))
+        var historyItems = (await AppServices.Store.GetHistoryAsync())
+            .Where(item => !(item.ScheduleId is Guid id && hiddenScheduleIds.Contains(id)) &&
+                           !IsRemovedFeatureHistory(item.EventType))
+            .ToArray();
+        var seriesOf = allSchedules.ToDictionary(schedule => schedule.Id, ScheduleExtras.SeriesKey);
+        foreach (var item in historyItems)
         {
-            History.Add(new HistoryRow(item));
+            History.Add(new HistoryRow(item, item.ScheduleId is Guid id && seriesOf.TryGetValue(id, out var key) ? key : item.ScheduleId));
         }
+
+        SelectedSchedule = Schedules.FirstOrDefault(row => row.SeriesKey == selectedKey) ?? Schedules.FirstOrDefault();
+        HistoryScheduleFilter = historyFilterKey is null ? null : Schedules.FirstOrDefault(row => row.SeriesKey == historyFilterKey);
+        RefreshHistoryView();
 
         Compatibility.Clear();
         foreach (var item in (await AppServices.Store.GetCompatibilityAsync()).Where(item =>
@@ -114,9 +257,86 @@ public sealed class MainViewModel : INotifyPropertyChanged
             : journal?.State is AutoPower.Windows.AutologonJournalState.CleanupFailed or AutoPower.Windows.AutologonJournalState.RollbackFailed
                 ? "이전 버전의 보안 설정을 해제하지 못했습니다. 관리자 권한 정리가 필요합니다."
                 : null;
+
+        await RefreshAttentionAsync(historyItems);
+
         StatusMessage = Schedules.Count == 0 ? "미래 예약이 없습니다." : $"미래 예약 {Schedules.Count}개";
-        OnPropertyChanged(nameof(NextScheduleSummary));
+        OnPropertyChanged(nameof(HasSchedules));
+        OnPropertyChanged(nameof(NextSchedule));
+        OnPropertyChanged(nameof(HasNextSchedule));
+        OnPropertyChanged(nameof(NextGlyph));
         OnPropertyChanged(nameof(NextPendingWakeSchedule));
+        OnPropertyChanged(nameof(HasPausedSchedules));
+        OnPropertyChanged(nameof(HasActiveSchedules));
+        Tick();
+    }
+
+    /// <summary>Hides the banner until a newer problem is recorded.</summary>
+    public async Task AcknowledgeAttentionAsync()
+    {
+        var stamp = _attentionLatestUtc ?? DateTimeOffset.UtcNow;
+        await AppServices.Store.SetSettingAsync(AttentionAcknowledgedKey, stamp.ToString("O", CultureInfo.InvariantCulture));
+        AttentionText = null;
+    }
+
+    private async Task RefreshAttentionAsync(IReadOnlyList<ExecutionHistory> history)
+    {
+        var stored = await AppServices.Store.GetSettingAsync(AttentionAcknowledgedKey);
+        DateTimeOffset? acknowledged = DateTimeOffset.TryParse(stored, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
+            ? parsed
+            : null;
+        var summary = ScheduleExtras.Attention(history, acknowledged);
+        _attentionLatestUtc = summary.LatestUtc;
+        AttentionText = summary.Text;
+    }
+
+    private void RefreshHistoryView()
+    {
+        HistoryView.Refresh();
+        OnPropertyChanged(nameof(HistoryIsEmpty));
+    }
+
+    private void RefreshSelectedScheduleHistory()
+    {
+        SelectedScheduleHistory.Clear();
+        if (SelectedSchedule is not { } selected)
+        {
+            return;
+        }
+
+        foreach (var row in History.Where(row => row.SeriesKey == selected.SeriesKey).Take(5))
+        {
+            SelectedScheduleHistory.Add(row);
+        }
+    }
+
+    private bool MatchesHistoryFilter(HistoryRow row)
+    {
+        if (HistoryScheduleFilter is { } schedule && row.SeriesKey != schedule.SeriesKey)
+        {
+            return false;
+        }
+
+        var resultMatches = HistoryResultFilter switch
+        {
+            HistoryResultFilter.Success => row.History.Result == ResultKind.Success,
+            HistoryResultFilter.Failure => row.History.Result == ResultKind.Failure,
+            HistoryResultFilter.Skipped => row.History.Result == ResultKind.Skipped,
+            HistoryResultFilter.Warning => row.History.Result == ResultKind.Warning,
+            HistoryResultFilter.Information => row.History.Result == ResultKind.Information,
+            _ => true
+        };
+        if (!resultMatches)
+        {
+            return false;
+        }
+
+        var search = HistorySearch.Trim();
+        return search.Length == 0 ||
+               row.DetailText.Contains(search, StringComparison.CurrentCultureIgnoreCase) ||
+               row.EventText.Contains(search, StringComparison.CurrentCultureIgnoreCase) ||
+               row.History.EventType.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+               row.TimeText.Contains(search, StringComparison.Ordinal);
     }
 
     private static bool IsRemovedFeatureHistory(string eventType) =>
@@ -130,41 +350,73 @@ public sealed class MainViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }
 
-public sealed record ScheduleRow(PowerSchedule Schedule)
+public sealed record ScheduleRow(PowerSchedule Schedule, IReadOnlyList<PowerSchedule> AllSchedules)
 {
-    public string DateText => Schedule.ScheduledLocalDateTime.ToString("yyyy.MM.dd (ddd)", System.Globalization.CultureInfo.CurrentCulture);
-    public string TimeText => Schedule.ScheduledLocalDateTime.ToString("HH:mm", System.Globalization.CultureInfo.CurrentCulture);
-    public string ActionText => AppText.T(Schedule.ActionType switch
+    public ScheduleRow(PowerSchedule schedule)
+        : this(schedule, [schedule])
     {
-        PowerActionType.WakeFromSleep => "자동 시작 (S3)",
-        PowerActionType.WakeFromHibernate => "자동 시작 (S4)",
-        PowerActionType.Shutdown => "완전 종료",
-        PowerActionType.Hibernate => "최대 절전",
-        PowerActionType.Sleep => "절전",
-        _ => "이전 전원 동작"
-    });
-    public string EnabledText => Schedule.IsEnabled ? "ON" : "OFF";
-    public string SessionText => AppText.T(PowerSchedulePolicy.IsWakeSchedule(Schedule.ActionType)
+    }
+
+    /// <summary>Groups occurrences of one recurring series (the schedule id otherwise).</summary>
+    public Guid? SeriesKey => ScheduleExtras.SeriesKey(Schedule);
+
+    public string TimeText => Schedule.ScheduledLocalDateTime.ToString("HH:mm", CultureInfo.InvariantCulture);
+    public string DateText => UiText.DateLabel(Schedule.ScheduledLocalDateTime);
+    public string LongDateText => UiText.LongDate(Schedule.ScheduledLocalDateTime);
+    public string WhenText => UiText.When(Schedule.ScheduledLocalDateTime, DateTime.Now);
+    public string ActionText => UiText.ActionName(Schedule.ActionType);
+    public string? NameText => ScheduleExtras.Name(Schedule);
+    public string TitleText => NameText ?? ActionText;
+    public string SubtitleText => NameText is null ? WhenText : $"{ActionText} · {WhenText}";
+    public string? RepeatText => ScheduleExtras.RepeatText(Schedule);
+    public bool IsRecurring => RepeatText is not null;
+    public bool IsEnabled => Schedule.IsEnabled;
+    public bool IsWake => PowerSchedulePolicy.IsWakeSchedule(Schedule.ActionType);
+    public string EnabledText => AppText.T(Schedule.IsEnabled ? "켜짐" : "꺼짐");
+    public string ToggleMenuText => AppText.T(Schedule.IsEnabled ? "끄기" : "켜기");
+    public string RepeatDisplayText => RepeatText ?? AppText.T("한 번");
+    public string SessionText => AppText.T(IsWake
         ? Schedule.OneTimeAutoLogonEnabled ? "1회 자동 로그인" : "로그인 필요"
         : "—");
-    public string ProgramsText => PowerSchedulePolicy.IsWakeSchedule(Schedule.ActionType)
-        ? AppText.IsEnglish ? $"{Schedule.FollowUpPrograms.Count}" : $"{Schedule.FollowUpPrograms.Count}개"
+    public string ProgramsText => IsWake
+        ? Schedule.FollowUpPrograms.Count == 0 ? AppText.T("없음") : AppText.F("{0}개", Schedule.FollowUpPrograms.Count)
         : "—";
+    public IReadOnlyList<ProgramDraft> Programs => Schedule.FollowUpPrograms
+        .OrderBy(program => program.SortOrder)
+        .Select(program => new ProgramDraft(program.Id, program.ExecutablePath, program.DelayAfterDesktopReadyMinutes, program.Arguments, program.WorkingDirectory, program.RunElevated))
+        .ToArray();
+    public bool HasPrograms => IsWake && Schedule.FollowUpPrograms.Count > 0;
+
+    public string ActionGlyph => Schedule.ActionType switch
+    {
+        PowerActionType.Shutdown => Glyphs.Power,
+        PowerActionType.Hibernate => Glyphs.Hibernate,
+        PowerActionType.Sleep => Glyphs.Sleep,
+        PowerActionType.WakeFromSleep or PowerActionType.WakeFromHibernate => Glyphs.Wake,
+        _ => Glyphs.Clock
+    };
+
     public string Summary => $"{Schedule.ScheduledLocalDateTime:MM.dd HH:mm} {ActionText}";
+
+    /// <summary>Name read by screen readers for the list item.</summary>
+    public override string ToString() =>
+        string.Join(", ", new[] { TitleText, WhenText, RepeatText, EnabledText }.Where(part => !string.IsNullOrWhiteSpace(part)));
 }
 
-public sealed record HistoryRow(ExecutionHistory History)
+public sealed record HistoryRow(ExecutionHistory History, Guid? SeriesKey)
 {
-    public string TimeText => History.ActualTimeUtc.ToLocalTime().ToString("yyyy.MM.dd HH:mm:ss", System.Globalization.CultureInfo.CurrentCulture);
-    public string ResultText => AppText.T(History.Result switch
+    public HistoryRow(ExecutionHistory history)
+        : this(history, history.ScheduleId)
     {
-        ResultKind.Success => "성공",
-        ResultKind.Failure => "실패",
-        ResultKind.Skipped => "건너뜀",
-        ResultKind.Warning => "경고",
-        _ => "정보"
-    });
+    }
+
+    public string TimeText => History.ActualTimeUtc.ToLocalTime().ToString("yyyy.MM.dd HH:mm:ss", CultureInfo.InvariantCulture);
+    public string ResultText => UiText.ResultName(History.Result);
+    public string EventText => UiText.EventName(History.EventType);
     public string DetailText => AppText.T(History.UserReadableMessage);
+    public ResultKind Result => History.Result;
+
+    public override string ToString() => $"{TimeText}, {ResultText}, {EventText}, {DetailText}";
 }
 
 public sealed record CompatibilityRow(CompatibilityResult Result)
@@ -190,4 +442,15 @@ public sealed record CompatibilityRow(CompatibilityResult Result)
             _ => "확인 불가"
         });
     public string DetailText => AppText.T(Result.Detail);
+    public CapabilityStatus Status => Result.Status;
+
+    public string Glyph => Result.Capability switch
+    {
+        CompatibilityCapabilities.S3Wake => Glyphs.Sleep,
+        CompatibilityCapabilities.S4Wake => Glyphs.Hibernate,
+        CompatibilityCapabilities.OneTimeAutoLogon => Glyphs.Contact,
+        _ => Glyphs.Diagnostic
+    };
+
+    public override string ToString() => $"{CapabilityText}, {StatusText}";
 }

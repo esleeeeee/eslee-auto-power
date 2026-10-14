@@ -1,113 +1,267 @@
-<Window x:Class="AutoPower.App.ScheduleEditorWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="예약" Width="720" Height="700" MinHeight="620" WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
-        Background="{StaticResource WindowBrush}" Foreground="{StaticResource TextBrush}">
-    <Grid Margin="24">
+<controls:ThemedWindow x:Class="AutoPower.App.ScheduleEditorWindow"
+                       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                       xmlns:controls="clr-namespace:AutoPower.App.Controls"
+                       xmlns:app="clr-namespace:AutoPower.App"
+                       Title="예약"
+                       Width="720"
+                       Height="780"
+                       MinWidth="600"
+                       MinHeight="560"
+                       WindowStartupLocation="CenterOwner"
+                       ShowInTaskbar="False">
+    <Window.Resources>
+        <Style x:Key="OptionGlyph" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{x:Static controls:ThemeFonts.Icons}" />
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="Margin" Value="0,1,10,0" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+        </Style>
+        <Style x:Key="QuickButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Margin" Value="0,0,8,8" />
+            <Setter Property="Padding" Value="12,4" />
+        </Style>
+    </Window.Resources>
+
+    <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel>
-            <TextBlock x:Name="Heading" Text="새 예약" FontSize="24" FontWeight="SemiBold"/>
-            <TextBlock Text="자동 시작 예약 또는 지정 시각의 전원 동작을 설정합니다."
-                       Foreground="{StaticResource MutedBrush}" Margin="0,5,0,18"/>
-        </StackPanel>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="28,22,28,24">
+                <TextBlock x:Name="Heading" Text="새 예약" Style="{DynamicResource TitleText}" />
+                <TextBlock Text="자동 시작 예약 또는 지정 시각의 전원 동작을 설정합니다." Style="{DynamicResource SecondaryText}" Margin="0,4,0,20" />
 
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="16"/>
-                        <ColumnDefinition Width="160"/>
-                    </Grid.ColumnDefinitions>
+                <!-- ===== Action ===== -->
+                <TextBlock Text="동작" Style="{DynamicResource SectionHeaderText}" />
+                <UniformGrid Columns="2" Margin="0,0,0,18">
+                    <RadioButton x:Name="ActionShutdown" GroupName="Action" Style="{DynamicResource OptionCardRadio}" Margin="0,0,6,8"
+                                 AutomationProperties.Name="완전 종료" Checked="Action_Checked">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{x:Static controls:Glyphs.Power}" Style="{StaticResource OptionGlyph}" />
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="완전 종료" FontWeight="SemiBold" />
+                                <TextBlock Text="예약 시각에 PC를 완전히 끕니다." Style="{DynamicResource CaptionText}" />
+                            </StackPanel>
+                        </Grid>
+                    </RadioButton>
+                    <RadioButton x:Name="ActionHibernate" GroupName="Action" Style="{DynamicResource OptionCardRadio}" Margin="6,0,0,8"
+                                 AutomationProperties.Name="최대 절전" Checked="Action_Checked">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{x:Static controls:Glyphs.Hibernate}" Style="{StaticResource OptionGlyph}" />
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="최대 절전" FontWeight="SemiBold" />
+                                <TextBlock Text="작업 상태를 저장한 채 전원을 끕니다." Style="{DynamicResource CaptionText}" />
+                            </StackPanel>
+                        </Grid>
+                    </RadioButton>
+                    <RadioButton x:Name="ActionSleep" GroupName="Action" Style="{DynamicResource OptionCardRadio}" Margin="0,0,6,8"
+                                 AutomationProperties.Name="절전" Checked="Action_Checked">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{x:Static controls:Glyphs.Sleep}" Style="{StaticResource OptionGlyph}" />
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="절전" FontWeight="SemiBold" />
+                                <TextBlock Text="빠르게 다시 켤 수 있는 저전력 상태로 전환합니다." Style="{DynamicResource CaptionText}" />
+                            </StackPanel>
+                        </Grid>
+                    </RadioButton>
+                    <RadioButton x:Name="ActionWake" GroupName="Action" Style="{DynamicResource OptionCardRadio}" Margin="6,0,0,8"
+                                 AutomationProperties.Name="자동 시작 예약" Checked="Action_Checked">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{x:Static controls:Glyphs.Wake}" Style="{StaticResource OptionGlyph}" />
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="자동 시작" FontWeight="SemiBold" />
+                                <TextBlock Text="절전·최대 절전 상태의 PC를 예약 시각에 깨웁니다." Style="{DynamicResource CaptionText}" />
+                            </StackPanel>
+                        </Grid>
+                    </RadioButton>
+                </UniformGrid>
+
+                <!-- ===== Name ===== -->
+                <TextBlock Text="이름 (선택)" Style="{DynamicResource SectionHeaderText}" />
+                <TextBox x:Name="NameInput" MaxLength="40" Margin="0,0,0,18" AutomationProperties.Name="이름 (선택)" />
+
+                <!-- ===== When ===== -->
+                <TextBlock Text="언제" Style="{DynamicResource SectionHeaderText}" />
+                <Border Style="{DynamicResource Card}" Margin="0,0,0,18">
                     <StackPanel>
-                        <TextBlock Text="날짜" Margin="0,0,0,6"/>
-                        <DatePicker x:Name="DateInput"/>
-                    </StackPanel>
-                    <StackPanel Grid.Column="2">
-                        <TextBlock Text="시간 (HH:mm)" Margin="0,0,0,6"/>
-                        <TextBox x:Name="TimeInput"/>
-                    </StackPanel>
-                </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="150" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="날짜" Style="{DynamicResource FieldLabel}" />
+                                <DatePicker x:Name="DateInput" AutomationProperties.Name="날짜" SelectedDateChanged="When_Changed" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="시간 (HH:mm)" Style="{DynamicResource FieldLabel}" />
+                                <TextBox x:Name="TimeInput" AutomationProperties.Name="시간 (HH:mm)" TextChanged="When_Changed" />
+                            </StackPanel>
+                        </Grid>
 
-                <TextBlock Text="동작" Margin="0,16,0,6"/>
-                <ComboBox x:Name="ActionInput"
-                          SelectionChanged="ActionInput_SelectionChanged"
-                          DisplayMemberPath="Text"
-                          SelectedValuePath="Value"/>
+                        <StackPanel x:Name="PowerShortcuts" Margin="0,14,0,0">
+                            <TextBlock Text="빠른 설정" Style="{DynamicResource FieldLabel}" />
+                            <WrapPanel>
+                                <Button x:Name="PowerAfter30Button" Content="30분 뒤" Tag="30" Style="{StaticResource QuickButton}" Click="QuickTime_Click" />
+                                <Button x:Name="PowerAfterOneHourButton" Content="1시간 뒤" Tag="60" Style="{StaticResource QuickButton}" Click="QuickTime_Click" />
+                                <Button x:Name="PowerAfterTwoHoursButton" Content="2시간 뒤" Tag="120" Style="{StaticResource QuickButton}" Click="QuickTime_Click" />
+                                <Button x:Name="PowerAfter3HoursButton" Content="3시간 뒤" Tag="180" Style="{StaticResource QuickButton}" Click="QuickTime_Click" />
+                            </WrapPanel>
+                            <TextBlock Text="버튼을 누른 현재 로컬 시각을 기준으로 날짜와 시간을 채웁니다. 이후에도 직접 수정할 수 있습니다."
+                                       Style="{DynamicResource CaptionText}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
 
-                <Border x:Name="PowerShortcuts" Background="{StaticResource PanelBrush}"
-                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                        CornerRadius="9" Padding="18" Margin="0,18,0,0" Visibility="Collapsed">
+                <!-- ===== Repeat ===== -->
+                <TextBlock Text="반복" Style="{DynamicResource SectionHeaderText}" />
+                <Border Style="{DynamicResource Card}" Margin="0,0,0,18">
                     <StackPanel>
-                        <TextBlock Text="빠른 설정" FontSize="16" FontWeight="SemiBold"/>
-                        <TextBlock Text="버튼을 누른 현재 로컬 시각을 기준으로 날짜와 시간을 채웁니다. 이후에도 직접 수정할 수 있습니다."
-                                   Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,0,11"/>
                         <WrapPanel>
-                            <Button x:Name="PowerAfterOneHourButton" Content="1시간 뒤"
-                                    Click="PowerAfterOneHour_Click" Margin="0,0,8,8"/>
-                            <Button x:Name="PowerAfterTwoHoursButton" Content="2시간 뒤"
-                                    Click="PowerAfterTwoHours_Click" Margin="0,0,0,8"/>
+                            <RadioButton x:Name="RepeatNone" GroupName="Repeat" Style="{DynamicResource ChipRadio}" Content="한 번" IsChecked="True" Checked="Repeat_Changed" />
+                            <RadioButton x:Name="RepeatDaily" GroupName="Repeat" Style="{DynamicResource ChipRadio}" Content="매일" Checked="Repeat_Changed" />
+                            <RadioButton x:Name="RepeatWeekdays" GroupName="Repeat" Style="{DynamicResource ChipRadio}" Content="평일 (월–금)" Checked="Repeat_Changed" />
+                            <RadioButton x:Name="RepeatWeekly" GroupName="Repeat" Style="{DynamicResource ChipRadio}" Content="요일 선택" Checked="Repeat_Changed" />
                         </WrapPanel>
+                        <WrapPanel x:Name="WeekdayPanel" Margin="0,6,0,0" Visibility="Collapsed">
+                            <ToggleButton x:Name="DayMonday" Style="{DynamicResource ChipToggle}" Content="월" Checked="Repeat_Changed" Unchecked="Repeat_Changed" />
+                            <ToggleButton x:Name="DayTuesday" Style="{DynamicResource ChipToggle}" Content="화" Checked="Repeat_Changed" Unchecked="Repeat_Changed" />
+                            <ToggleButton x:Name="DayWednesday" Style="{DynamicResource ChipToggle}" Content="수" Checked="Repeat_Changed" Unchecked="Repeat_Changed" />
+                            <ToggleButton x:Name="DayThursday" Style="{DynamicResource ChipToggle}" Content="목" Checked="Repeat_Changed" Unchecked="Repeat_Changed" />
+                            <ToggleButton x:Name="DayFriday" Style="{DynamicResource ChipToggle}" Content="금" Checked="Repeat_Changed" Unchecked="Repeat_Changed" />
+                            <ToggleButton x:Name="DaySaturday" Style="{DynamicResource ChipToggle}" Content="토" Checked="Repeat_Changed" Unchecked="Repeat_Changed" />
+                            <ToggleButton x:Name="DaySunday" Style="{DynamicResource ChipToggle}" Content="일" Checked="Repeat_Changed" Unchecked="Repeat_Changed" />
+                        </WrapPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <TextBlock Text="{x:Static controls:Glyphs.Clock}" Style="{DynamicResource IconText}" FontSize="13"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,8,0" />
+                            <TextBlock x:Name="NextRunPreview" Style="{DynamicResource SecondaryText}" />
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 
-                <Border x:Name="WakeOptions" Background="{StaticResource PanelBrush}"
-                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                        CornerRadius="9" Padding="18" Margin="0,18,0,0">
-                    <StackPanel>
-                        <TextBlock Text="자동 시작 방식" FontSize="16" FontWeight="SemiBold"/>
-                        <TextBlock Text="자동 선택은 실제 테스트에서 확인된 방식을 우선합니다. 실패로 기록된 방식은 제외하며, 나머지가 모두 미검증이면 사용 가능한 S4 최대 절전을 먼저 선택하고 S3 절전으로 대체합니다."
-                                   Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,7,0,10"/>
-                        <ComboBox x:Name="WakeModeInput"
-                                  SelectionChanged="WakeModeInput_SelectionChanged"
-                                  DisplayMemberPath="Text"
-                                  SelectedValuePath="Value"/>
-                        <Border Background="#3A3020" BorderBrush="#7A6230" BorderThickness="1"
-                                CornerRadius="7" Padding="11" Margin="0,14,0,0">
-                            <TextBlock x:Name="WakeModeNotice" Foreground="#FFE1A0" TextWrapping="Wrap"/>
-                        </Border>
+                <!-- ===== Wake options ===== -->
+                <StackPanel x:Name="WakeOptions">
+                    <TextBlock Text="자동 시작 방식" Style="{DynamicResource SectionHeaderText}" />
+                    <Border Style="{DynamicResource Card}" Margin="0,0,0,18">
+                        <StackPanel>
+                            <ComboBox x:Name="WakeModeInput"
+                                      DisplayMemberPath="Text"
+                                      SelectedValuePath="Value"
+                                      AutomationProperties.Name="자동 시작 방식"
+                                      SelectionChanged="WakeModeInput_SelectionChanged" />
+                            <TextBlock Style="{DynamicResource CaptionText}" Margin="0,8,0,0"
+                                       Text="자동 선택은 실제 테스트에서 확인된 방식을 우선합니다. 실패로 기록된 방식은 제외하며, 나머지가 모두 미검증이면 사용 가능한 S4 최대 절전을 먼저 선택하고 S3 절전으로 대체합니다." />
+                            <Border Style="{DynamicResource InfoBarInformational}" Margin="0,12,0,0">
+                                <TextBlock x:Name="WakeModeNotice" Style="{DynamicResource BodyText}" />
+                            </Border>
+                            <Separator Margin="0,14" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="앱 관리형 1회 자동 로그인" />
+                                    <TextBlock Style="{DynamicResource CaptionText}" Margin="0,2,0,0"
+                                               Text="선택하면 설정에서 등록·검증한 Windows 계정을 확인한 뒤, 다음 S3/S4 복귀 1회에 한해 잠금 화면을 건너뜁니다. 복귀 즉시 원래의 '절전 모드 해제 시 로그인 요구' 설정으로 되돌립니다. PIN은 저장하지 않으며 Windows 암호는 보호 저장소에만 보관됩니다. 예약 전에 PC를 일찍 깨우는 경우에도 잠금 없이 열릴 수 있습니다." />
+                                </StackPanel>
+                                <CheckBox x:Name="OneTimeAutoLogonCheck" Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center"
+                                          Style="{DynamicResource ToggleSwitch}" AutomationProperties.Name="앱 관리형 1회 자동 로그인" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
 
-                        <CheckBox x:Name="OneTimeAutoLogonCheck"
-                                  Content="앱 관리형 1회 자동 로그인"
-                                  Margin="0,14,0,5"/>
-                        <TextBlock Text="선택하면 설정에서 등록·검증한 Windows 계정을 확인한 뒤, 다음 S3/S4 복귀 1회에 한해 잠금 화면을 건너뜁니다. 복귀 즉시 원래의 '절전 모드 해제 시 로그인 요구' 설정으로 되돌립니다. PIN은 저장하지 않으며 Windows 암호는 보호 저장소에만 보관됩니다. 예약 전에 PC를 일찍 깨우는 경우에도 잠금 없이 열릴 수 있습니다."
-                                   Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap"/>
-                        <DockPanel Margin="0,18,0,10">
-                            <TextBlock Text="복귀 후 실행" FontWeight="SemiBold" DockPanel.Dock="Left"/>
-                            <Button x:Name="AddProgramButton" Content="+ 추가" Click="AddProgram_Click" DockPanel.Dock="Right" Padding="11,5"/>
-                        </DockPanel>
-                        <DataGrid x:Name="ProgramsGrid" ItemsSource="{Binding Programs}" AutoGenerateColumns="False"
-                                  IsReadOnly="True" CanUserAddRows="False" Height="190">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="프로그램" Binding="{Binding FileName}" Width="*"/>
-                                <DataGridTextColumn Header="T0 + N분" Binding="{Binding DelayMinutes}" Width="90"/>
-                                <DataGridTextColumn Header="권한" Binding="{Binding PrivilegeText}" Width="80"/>
-                            </DataGrid.Columns>
-                        </DataGrid>
-                        <Button Content="선택 항목 제거" HorizontalAlignment="Right" Margin="0,9,0,0"
-                                Click="RemoveProgram_Click" Padding="10,5"/>
-                        <TextBlock Text="후속 프로그램은 예약 시각이 아니라 실제 Resume 준비 완료 T0를 기준으로 실행합니다. 0분과 같은 지연 시간의 여러 프로그램도 허용합니다."
-                                   Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" Margin="0,12,0,0"/>
-                    </StackPanel>
-                </Border>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="복귀 후 실행" Style="{DynamicResource SectionHeaderText}" VerticalAlignment="Bottom" />
+                        <Button x:Name="AddProgramButton" Grid.Column="1" Margin="0,0,0,8" Click="AddProgram_Click" AutomationProperties.Name="후속 프로그램 추가">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{x:Static controls:Glyphs.Add}" FontFamily="{x:Static controls:ThemeFonts.Icons}" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <TextBlock Text="추가" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                    <Border Style="{DynamicResource Card}" Padding="0,4" Margin="0,0,0,8">
+                        <Grid>
+                            <ItemsControl x:Name="ProgramsList" ItemsSource="{Binding Programs}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type app:ProgramDraft}">
+                                        <Grid Margin="16,6,8,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{x:Static controls:Glyphs.Program}" Style="{DynamicResource IconText}" Margin="0,0,12,0"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}" />
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding ExecutablePath}" />
+                                                <TextBlock Text="{Binding DelayText}" Style="{DynamicResource CaptionText}" />
+                                            </StackPanel>
+                                            <Button Grid.Column="2" Style="{DynamicResource IconButton}" Width="32" Height="32" FontSize="14"
+                                                    Content="{x:Static controls:Glyphs.Edit}" ToolTip="수정" AutomationProperties.Name="수정"
+                                                    Click="EditProgram_Click" />
+                                            <Button Grid.Column="3" Style="{DynamicResource IconButton}" Width="32" Height="32" FontSize="14"
+                                                    Content="{x:Static controls:Glyphs.Delete}" ToolTip="제거" AutomationProperties.Name="제거"
+                                                    Click="RemoveProgram_Click" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock x:Name="NoProgramsText" Text="복귀 후 실행할 프로그램이 없습니다." Style="{DynamicResource SecondaryText}" Margin="16,10" />
+                        </Grid>
+                    </Border>
+                    <TextBlock Style="{DynamicResource CaptionText}" Margin="0,0,0,18"
+                               Text="후속 프로그램은 예약 시각이 아니라 실제 Resume 준비 완료 T0를 기준으로 실행합니다. 0분과 같은 지연 시간의 여러 프로그램도 허용합니다." />
+                </StackPanel>
 
-                <Border x:Name="PowerOffNotice" Background="#35292A" BorderBrush="#654449"
-                        BorderThickness="1" CornerRadius="9" Padding="18" Margin="0,18,0,0">
-                    <TextBlock x:Name="PowerOffNoticeText"
-                            Text="예약한 전원 동작은 정확히 5분 전에 경고합니다. 저장하지 않은 작업이 없도록 미리 확인하세요."
-                               TextWrapping="Wrap" Foreground="#FFD8DE"/>
+                <!-- ===== Power-off notice ===== -->
+                <Border x:Name="PowerOffNotice" Style="{DynamicResource InfoBarCaution}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{x:Static controls:Glyphs.Warning}" Style="{DynamicResource IconText}" FontSize="14"
+                                   Foreground="{DynamicResource CautionForegroundBrush}" Margin="0,2,10,0" VerticalAlignment="Top" />
+                        <TextBlock x:Name="PowerOffNoticeText" Grid.Column="1" Style="{DynamicResource BodyText}"
+                                   Text="예약한 전원 동작은 정확히 5분 전에 경고합니다. 저장하지 않은 작업이 없도록 미리 확인하세요." />
+                    </Grid>
                 </Border>
             </StackPanel>
         </ScrollViewer>
 
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
-            <Button Content="취소" IsCancel="True" Margin="0,0,8,0"/>
-            <Button Content="저장" Style="{StaticResource AccentButton}" Click="Save_Click"/>
-        </StackPanel>
+        <Border Grid.Row="1" Style="{DynamicResource DialogFooter}">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="저장" MinWidth="96" Style="{DynamicResource AccentButton}" IsDefault="True" Margin="0,0,8,0" Click="Save_Click" />
+                <Button Content="취소" MinWidth="96" IsCancel="True" />
+            </StackPanel>
+        </Border>
     </Grid>
-</Window>
+</controls:ThemedWindow>

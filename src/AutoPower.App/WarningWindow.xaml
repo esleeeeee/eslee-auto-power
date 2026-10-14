@@ -1,26 +1,73 @@
-<Window x:Class="AutoPower.App.WarningWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="예약 실행 전 확인" Width="600" MinHeight="330" SizeToContent="Height" ResizeMode="NoResize" WindowStartupLocation="CenterScreen" Topmost="True"
-        Background="{StaticResource WindowBrush}" Foreground="{StaticResource TextBrush}">
-    <Grid Margin="26">
-        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <StackPanel>
-            <TextBlock x:Name="Heading" FontSize="22" FontWeight="SemiBold"/>
-            <TextBlock x:Name="ScheduleText" Foreground="{StaticResource AccentBrush}" Margin="0,7,0,0"/>
-        </StackPanel>
-        <StackPanel Grid.Row="1" Margin="0,18,0,0">
-            <TextBlock x:Name="Description" TextWrapping="Wrap" FontSize="14"/>
-            <Border x:Name="DataLossWarning" Background="#3A272B" BorderBrush="#79424D" BorderThickness="1" CornerRadius="7" Padding="11" Margin="0,15,0,0">
-                <TextBlock Text="저장되지 않은 데이터가 손실될 수 있습니다." Foreground="#FFD8DE" TextWrapping="Wrap"/>
+<controls:ThemedWindow x:Class="AutoPower.App.WarningWindow"
+                       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                       xmlns:controls="clr-namespace:AutoPower.App.Controls"
+                       Title="예약 실행 전 확인"
+                       Width="600"
+                       SizeToContent="Height"
+                       ResizeMode="NoResize"
+                       WindowStartupLocation="CenterScreen"
+                       Topmost="True">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Margin="26,22,26,22">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Width="48" Height="48" CornerRadius="24" Margin="0,0,16,0" VerticalAlignment="Top"
+                    Background="{DynamicResource CautionBackgroundBrush}">
+                <TextBlock x:Name="HeadingGlyph" Text="{x:Static controls:Glyphs.Power}" FontFamily="{x:Static controls:ThemeFonts.Icons}" FontSize="22"
+                           Foreground="{DynamicResource CautionForegroundBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
             </Border>
-            <TextBlock Text="창을 닫거나 30초 동안 응답하지 않으면 원래 예약 시각을 그대로 유지합니다." Foreground="{StaticResource MutedBrush}" Margin="0,14,0,0"/>
-        </StackPanel>
-        <Grid Grid.Row="2" Margin="0,18,0,0">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-            <Button x:Name="NowButton" Click="Now_Click" Style="{StaticResource AccentButton}" HorizontalAlignment="Left"/>
-            <Button x:Name="KeepButton" Grid.Column="1" Click="Keep_Click" Margin="0,0,8,0"/>
-            <Button Content="이번 예약 건너뛰기" Grid.Column="2" Click="Skip_Click"/>
+            <StackPanel Grid.Column="1">
+                <TextBlock x:Name="Heading" Style="{DynamicResource SubtitleText}" TextWrapping="Wrap" />
+                <TextBlock x:Name="ScheduleText" Style="{DynamicResource BodyStrongText}" Foreground="{DynamicResource AccentTextBrush}" Margin="0,4,0,0" />
+                <TextBlock x:Name="Description" Style="{DynamicResource BodyText}" Margin="0,14,0,0" />
+                <Border x:Name="DataLossWarning" Style="{DynamicResource InfoBarCritical}" Margin="0,14,0,0">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{x:Static controls:Glyphs.Warning}" Style="{DynamicResource IconText}" FontSize="14"
+                                   Foreground="{DynamicResource CriticalForegroundBrush}" Margin="0,0,10,0" />
+                        <TextBlock Text="저장되지 않은 데이터가 손실될 수 있습니다." Style="{DynamicResource BodyText}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+                <TextBlock Text="창을 닫거나 30초 동안 응답하지 않으면 원래 예약 시각을 그대로 유지합니다." Style="{DynamicResource CaptionText}" Margin="0,14,0,0" />
+            </StackPanel>
         </Grid>
+
+        <Border Grid.Row="1" Style="{DynamicResource DialogFooter}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button x:Name="NowButton" Style="{DynamicResource AccentButton}" Click="Now_Click" />
+                <Button x:Name="SnoozeButton" Grid.Column="1" HorizontalAlignment="Left" Margin="8,0,0,0" Click="Snooze_Click"
+                        AutomationProperties.Name="미루기">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{x:Static controls:Glyphs.Snooze}" FontFamily="{x:Static controls:ThemeFonts.Icons}" FontSize="14"
+                                   VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <TextBlock Text="미루기" VerticalAlignment="Center" />
+                        <TextBlock Text="&#xE70D;" FontFamily="{x:Static controls:ThemeFonts.Icons}" FontSize="10"
+                                   VerticalAlignment="Center" Margin="8,1,0,0" />
+                    </StackPanel>
+                    <Button.ContextMenu>
+                        <ContextMenu x:Name="SnoozeMenu">
+                            <MenuItem Header="10분 뒤로" Tag="10" Click="SnoozeOption_Click" />
+                            <MenuItem Header="30분 뒤로" Tag="30" Click="SnoozeOption_Click" />
+                            <MenuItem Header="1시간 뒤로" Tag="60" Click="SnoozeOption_Click" />
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+                <Button x:Name="SkipButton" Grid.Column="2" Content="이번 예약 건너뛰기" Margin="8,0,0,0" Click="Skip_Click" />
+                <Button x:Name="KeepButton" Grid.Column="3" Margin="8,0,0,0" IsDefault="True" Click="Keep_Click" />
+            </Grid>
+        </Border>
     </Grid>
-</Window>
+</controls:ThemedWindow>

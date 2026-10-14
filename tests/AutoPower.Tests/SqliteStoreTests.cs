@@ -89,7 +89,7 @@ public sealed class SqliteStoreTests
         }
         finally
         {
-            SqliteConnection.ClearAllPools();
+            TestDatabase.ReleasePools(path);
             Directory.Delete(directory, true);
         }
     }
@@ -148,6 +148,14 @@ public sealed class SqliteStoreTests
         private TestDatabase(string directory, SqliteStore store) { _directory = directory; Store = store; }
         public SqliteStore Store { get; }
         public string DatabasePath => Path.Combine(_directory, "test.db");
+        /// <summary>Releases pooled connections of one database file without touching other tests.</summary>
+        public static void ReleasePools(string path)
+        {
+            new SqliteStore(path).ReleasePooledConnections();
+            using var raw = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
+            SqliteConnection.ClearPool(raw);
+        }
+
         public static async Task<TestDatabase> CreateAsync()
         {
             var directory = Path.Combine(Path.GetTempPath(), "AutoPower.Tests", Guid.NewGuid().ToString("N"));
@@ -157,7 +165,7 @@ public sealed class SqliteStoreTests
         }
         public ValueTask DisposeAsync()
         {
-            SqliteConnection.ClearAllPools();
+            Store.ReleasePooledConnections();
             if (Directory.Exists(_directory)) Directory.Delete(_directory, true);
             return ValueTask.CompletedTask;
         }

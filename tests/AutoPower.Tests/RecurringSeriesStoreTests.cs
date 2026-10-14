@@ -94,7 +94,7 @@ public sealed class RecurringSeriesStoreTests
         }
         finally
         {
-            SqliteConnection.ClearAllPools();
+            SqliteStoreTests.TestDatabase.ReleasePools(path);
             Directory.Delete(directory, true);
         }
     }

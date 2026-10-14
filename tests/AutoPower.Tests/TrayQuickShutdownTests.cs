@@ -22,16 +22,25 @@ public sealed class TrayQuickShutdownTests
 
     private static readonly bool[] ExpectedBusyStates = [true, false];
     private static readonly bool[] ExpectedBusyStatesForTwoRuns = [true, false, true, false];
+    private static readonly string[] ExpectedQuickActionIds =
+    [
+        "quick-shutdown-30m", "quick-shutdown-3h",
+        "quick-hibernate-30m", "quick-hibernate-1h", "quick-hibernate-2h", "quick-hibernate-3h",
+        "quick-sleep-30m", "quick-sleep-1h", "quick-sleep-2h", "quick-sleep-3h"
+    ];
+
     private static readonly TrayMenuCommand[] ExpectedTrayMenuCommands =
     [
         TrayMenuCommand.QuickShutdown,
         TrayMenuCommand.QuickShutdown,
+        .. Enumerable.Repeat(TrayMenuCommand.QuickSchedule, 10),
         TrayMenuCommand.Separator,
         TrayMenuCommand.NextSchedule,
         TrayMenuCommand.Separator,
         TrayMenuCommand.OpenApp,
         TrayMenuCommand.NewSchedule,
         TrayMenuCommand.PauseAll,
+        TrayMenuCommand.ResumeAll,
         TrayMenuCommand.Separator,
         TrayMenuCommand.ExitApp
     ];
@@ -459,5 +468,51 @@ public sealed class TrayQuickShutdownTests
             RunCount++;
             return Task.CompletedTask;
         }
+    }
+
+    [TestMethod]
+    [DataRow(PowerActionType.Shutdown, 30)]
+    [DataRow(PowerActionType.Hibernate, 60)]
+    [DataRow(PowerActionType.Sleep, 180)]
+    public async Task QuickScheduleCreatesRequestedActionAtExactDelay(PowerActionType action, int minutes)
+    {
+        PowerSchedule? saved = null;
+        var notifications = new List<string>();
+        var controller = new TrayQuickShutdownController(
+            (schedule, _) =>
+            {
+                saved = schedule;
+                return Task.FromResult(ValidationResult.Success);
+            },
+            () => Task.CompletedTask,
+            (title, _, _) => notifications.Add(title),
+            (_, _) => { },
+            (_, _) => { },
+            (_, _) => { },
+            () => new DateTime(2030, 12, 31, 23, 45, 31));
+
+        var outcome = await controller.ExecuteAsync(action, minutes);
+
+        Assert.AreEqual(TrayQuickShutdownOutcome.Created, outcome);
+        Assert.IsNotNull(saved);
+        Assert.AreEqual(action, saved.ActionType);
+        Assert.AreEqual(new DateTime(2030, 12, 31, 23, 45, 0).AddMinutes(minutes), saved.ScheduledLocalDateTime);
+        Assert.HasCount(1, notifications);
+    }
+
+    [TestMethod]
+    public void QuickScheduleRejectsUnsupportedDelaysAndWakeActions()
+    {
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => QuickSchedulePolicy.At(DateTime.Now, 45));
+        Assert.IsFalse(QuickSchedulePolicy.IsSupportedAction(PowerActionType.WakeFromSleep));
+        Assert.AreEqual(ScheduleTimePolicy.QuickPowerTransition(new DateTime(2030, 1, 1, 8, 0, 59), 2), QuickSchedulePolicy.At(new DateTime(2030, 1, 1, 8, 0, 59), 120));
+    }
+
+    [TestMethod]
+    public void QuickScheduleActionIdsAreStableAndDistinct()
+    {
+        var quick = TrayMenuLayout.Entries.Where(entry => entry.Command == TrayMenuCommand.QuickSchedule).ToArray();
+        CollectionAssert.AreEqual(ExpectedQuickActionIds, quick.Select(entry => entry.ActionId).ToArray());
+        Assert.IsTrue(quick.All(entry => QuickSchedulePolicy.SupportedMinutes.Contains(entry.QuickMinutes!.Value)));
     }
 }

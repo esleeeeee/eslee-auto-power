@@ -20,3 +20,6 @@ docs/s5-rtc-investigation.md
 
 # Unused original artwork; the optimized app asset is versioned under src/.
 /eslee-Auto-Power.png
+
+# Claude Code agent worktrees
+.claude/worktrees/

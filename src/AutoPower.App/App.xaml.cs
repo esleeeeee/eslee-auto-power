@@ -1,5 +1,8 @@
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using System.Windows;
+using AutoPower.App.Services;
 using AutoPower.Core;
 using AutoPower.Data;
 using AutoPower.Windows;
@@ -13,6 +16,10 @@ public partial class App : System.Windows.Application
     private TrayService? _tray;
     private TrayHostLink? _trayHostLink;
     private MainWindow? _mainWindow;
+    private Mutex? _singleInstanceMutex;
+    private bool _ownsSingleInstanceMutex;
+    private EventWaitHandle? _activationEvent;
+    private RegisteredWaitHandle? _activationWait;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -21,9 +28,19 @@ public partial class App : System.Windows.Application
         System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
         WpfLocalizer.Enable();
         base.OnStartup(e);
+        ThemeService.Install(this, AppThemePreference.System);
         try
         {
             await AppServices.InitializeAsync();
+            try
+            {
+                ThemeService.Apply(AppThemeSetting.Parse(await AppServices.Store.GetSettingAsync(AppThemeSetting.Key)));
+            }
+            catch
+            {
+                // An unreadable theme preference must not prevent startup.
+            }
+
             var language = AppLanguagePreference.System;
             try
             {
@@ -91,6 +108,12 @@ public partial class App : System.Windows.Application
                 return;
             }
 
+            if (!TryBecomeSingleInstance())
+            {
+                Shutdown(0);
+                return;
+            }
+
             _mainWindow = new MainWindow();
             MainWindow = _mainWindow;
             _tray = new TrayService(_mainWindow);
@@ -134,6 +157,7 @@ public partial class App : System.Windows.Application
 
     public void ExitApplication()
     {
+        ReleaseSingleInstance();
         AppServices.Updates.Dispose();
         _trayHostLink?.Dispose();
         _trayHostLink = null;
@@ -145,6 +169,84 @@ public partial class App : System.Windows.Application
         }
 
         Shutdown();
+    }
+
+    /// <summary>
+    /// Starts a new instance with the same command line (for example after a language change)
+    /// and exits this one. Environment overrides such as the data root are inherited.
+    /// </summary>
+    public void RestartApplication()
+    {
+        var executable = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(executable))
+        {
+            return;
+        }
+
+        ReleaseSingleInstance();
+        var startInfo = new System.Diagnostics.ProcessStartInfo(executable) { UseShellExecute = false };
+        foreach (var argument in Environment.GetCommandLineArgs().Skip(1))
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        System.Diagnostics.Process.Start(startInfo)?.Dispose();
+        ExitApplication();
+    }
+
+    /// <summary>
+    /// One main instance per data root. A second launch asks the running instance to show
+    /// its window and exits. Warning windows started by scheduled tasks are not affected.
+    /// </summary>
+    private bool TryBecomeSingleInstance()
+    {
+        var suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            AppPaths.SharedStateDirectory.ToUpperInvariant())))[..16];
+        _singleInstanceMutex = new Mutex(initiallyOwned: true, $@"Local\eslee-auto-power-app-{suffix}", out _ownsSingleInstanceMutex);
+        if (!_ownsSingleInstanceMutex)
+        {
+            try
+            {
+                using var handle = EventWaitHandle.OpenExisting($@"Local\eslee-auto-power-activate-{suffix}");
+                handle.Set();
+            }
+            catch (Exception error)
+            {
+                AppServices.Logger.Error("app.single-instance-activate-failed", error);
+            }
+
+            _singleInstanceMutex.Dispose();
+            _singleInstanceMutex = null;
+            return false;
+        }
+
+        _activationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, $@"Local\eslee-auto-power-activate-{suffix}");
+        _activationWait = ThreadPool.RegisterWaitForSingleObject(
+            _activationEvent,
+            (_, _) => Dispatcher.BeginInvoke(() => _mainWindow?.ShowFromTray()),
+            null,
+            Timeout.Infinite,
+            executeOnlyOnce: false);
+        return true;
+    }
+
+    private void ReleaseSingleInstance()
+    {
+        _activationWait?.Unregister(null);
+        _activationWait = null;
+        _activationEvent?.Dispose();
+        _activationEvent = null;
+        if (_singleInstanceMutex is not null)
+        {
+            if (_ownsSingleInstanceMutex)
+            {
+                _singleInstanceMutex.ReleaseMutex();
+                _ownsSingleInstanceMutex = false;
+            }
+
+            _singleInstanceMutex.Dispose();
+            _singleInstanceMutex = null;
+        }
     }
 
     private static bool TryReadScheduleCommand(string[] args, string command, out Guid scheduleId)

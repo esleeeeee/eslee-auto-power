@@ -2,12 +2,13 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Threading;
+using AutoPower.App.Controls;
 using AutoPower.Core;
 using MessageBox = AutoPower.App.LocalizedMessageBox;
 
 namespace AutoPower.App;
 
-public partial class WarningWindow : Window
+public partial class WarningWindow : ThemedWindow
 {
     private readonly PowerSchedule _schedule;
     private readonly PowerSchedule? _nextWake;
@@ -20,7 +21,11 @@ public partial class WarningWindow : Window
         InitializeComponent();
         _schedule = schedule;
         _nextWake = nextWake;
-        ScheduleText.Text = $"{schedule.ScheduledLocalDateTime:yyyy.MM.dd HH:mm} · {AppText.T(ActionText(schedule.ActionType))}";
+        var name = ScheduleExtras.Name(schedule);
+        ScheduleText.Text = $"{schedule.ScheduledLocalDateTime:yyyy.MM.dd HH:mm} · {AppText.T(ActionText(schedule.ActionType))}" +
+                            (name is null ? string.Empty : $" · {name}");
+        HeadingGlyph.Text = new ScheduleRow(schedule).ActionGlyph;
+        SnoozeButton.Visibility = PowerSchedulePolicy.IsPowerTransition(schedule.ActionType) ? Visibility.Visible : Visibility.Collapsed;
         if (PowerSchedulePolicy.IsWakeSchedule(schedule.ActionType))
         {
             Heading.Text = AppText.T("PC가 이미 켜져 있습니다");
@@ -105,6 +110,36 @@ public partial class WarningWindow : Window
                 }
             }
 
+            MessageBox.Show(error.Message, "eslee Auto Power", MessageBoxButton.OK, MessageBoxImage.Error);
+            _decisionMade = false;
+            _timer.Start();
+        }
+    }
+
+    private void Snooze_Click(object sender, RoutedEventArgs e)
+    {
+        SnoozeMenu.PlacementTarget = SnoozeButton;
+        SnoozeMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Top;
+        SnoozeMenu.IsOpen = true;
+    }
+
+    private async void SnoozeOption_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string tag } ||
+            !int.TryParse(tag, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes))
+        {
+            return;
+        }
+
+        _decisionMade = true;
+        _timer.Stop();
+        try
+        {
+            await AppServices.Coordinator.SnoozeAsync(_schedule.Id, minutes);
+            Close();
+        }
+        catch (Exception error)
+        {
             MessageBox.Show(error.Message, "eslee Auto Power", MessageBoxButton.OK, MessageBoxImage.Error);
             _decisionMade = false;
             _timer.Start();

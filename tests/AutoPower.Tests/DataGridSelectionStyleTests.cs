@@ -6,70 +6,143 @@ using AutoPowerApp = AutoPower.App.App;
 
 namespace AutoPower.Tests;
 
+/// <summary>
+/// Light/dark palette and shared control styles (Themes/*.xaml): both palettes define the same keys,
+/// the eslee series colors are used, text meets WCAG contrast, and grid selection keeps readable text.
+/// </summary>
 [TestClass]
 public sealed class DataGridSelectionStyleTests
 {
     private const double MinimumContrastRatio = 4.5;
 
-    private static readonly Lazy<StyleSnapshot> Snapshot = new(LoadSnapshot, LazyThreadSafetyMode.ExecutionAndPublication);
+    private static readonly Lazy<ThemeSnapshot> Snapshot = new(LoadSnapshot, LazyThreadSafetyMode.ExecutionAndPublication);
 
-    private sealed record StyleSnapshot(
-        Color Text,
-        Color RowBackground,
-        Color AlternatingRowBackground,
-        Color Hover,
-        Color SelectionActive,
-        Color SelectionInactive,
-        Color CellForeground,
+    private sealed record ThemeSnapshot(
+        IReadOnlyDictionary<string, Color> Light,
+        IReadOnlyDictionary<string, Color> Dark,
         Color CellBackground,
         Color CellBorder,
-        bool RowHoverTriggerUsesHoverBrush,
-        bool RowSelectedTriggerUsesSelectionBrush,
-        bool RowInactiveTriggerUsesInactiveBrush,
-        bool InactiveTriggerFollowsSelectedTrigger);
+        string? CellForegroundKey,
+        int HoverTriggerIndex,
+        int SelectedTriggerIndex,
+        int InactiveTriggerIndex);
 
     [TestMethod]
-    public void SelectionBrushResourcesExistInAppTheme()
+    public void LightAndDarkPalettesDefineTheSameKeys()
     {
         var snapshot = Snapshot.Value;
-
-        Assert.AreNotEqual(default, snapshot.Hover);
-        Assert.AreNotEqual(default, snapshot.SelectionActive);
-        Assert.AreNotEqual(default, snapshot.SelectionInactive);
-        Assert.AreNotEqual(snapshot.SelectionActive, snapshot.SelectionInactive);
+        CollectionAssert.AreEquivalent(snapshot.Light.Keys.ToArray(), snapshot.Dark.Keys.ToArray());
     }
 
     [TestMethod]
-    public void RowStyleDefinesHoverActiveAndInactiveSelectionStates()
+    [DataRow("WindowBackgroundBrush", "#F3F3F3", "#202020")]
+    [DataRow("CardBackgroundBrush", "#FFFFFF", "#2B2B2B")]
+    [DataRow("CardBackgroundSecondaryBrush", "#F9F9F9", "#262626")]
+    [DataRow("CardStrokeBrush", "#E3E3E3", "#363636")]
+    [DataRow("TextPrimaryBrush", "#1B1B1B", "#FFFFFF")]
+    [DataRow("TextSecondaryBrush", "#5C5C5C", "#C8C8C8")]
+    [DataRow("AccentBrush", "#005FB8", "#60CDFF")]
+    [DataRow("AccentHoverBrush", "#196EBF", "#5ABBEA")]
+    [DataRow("AccentPressedBrush", "#3183CA", "#52A8D4")]
+    [DataRow("AccentSubtleBrush", "#E5EFF9", "#1F3443")]
+    [DataRow("SuccessForegroundBrush", "#0F7B0F", "#6CCB5F")]
+    [DataRow("SuccessBackgroundBrush", "#DFF6DD", "#2A3A23")]
+    [DataRow("CautionForegroundBrush", "#9D5D00", "#FCE100")]
+    [DataRow("CautionBackgroundBrush", "#FFF4CE", "#433519")]
+    public void PaletteUsesSeriesColors(string key, string light, string dark)
     {
         var snapshot = Snapshot.Value;
+        Assert.AreEqual((Color)ColorConverter.ConvertFromString(light), snapshot.Light[key], $"light {key}");
+        Assert.AreEqual((Color)ColorConverter.ConvertFromString(dark), snapshot.Dark[key], $"dark {key}");
+    }
 
-        Assert.IsTrue(snapshot.RowHoverTriggerUsesHoverBrush);
-        Assert.IsTrue(snapshot.RowSelectedTriggerUsesSelectionBrush);
-        Assert.IsTrue(snapshot.RowInactiveTriggerUsesInactiveBrush);
-        Assert.IsTrue(snapshot.InactiveTriggerFollowsSelectedTrigger);
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void TextMeetsContrastOnEverySurface(bool dark)
+    {
+        var palette = dark ? Snapshot.Value.Dark : Snapshot.Value.Light;
+        var window = palette["WindowBackgroundBrush"];
+        var card = palette["CardBackgroundBrush"];
+        foreach (var surface in new[] { "WindowBackgroundBrush", "PaneBackgroundBrush", "CardBackgroundBrush", "CardBackgroundSecondaryBrush", "ListItemSelectedBrush", "ListItemSelectedHoverBrush" })
+        {
+            AssertContrast(palette["TextPrimaryBrush"], palette[surface], $"primary text on {surface}");
+            AssertContrast(palette["TextSecondaryBrush"], palette[surface], $"secondary text on {surface}");
+        }
+
+        AssertContrast(palette["TextPrimaryBrush"], Composite(palette["ListItemHoverBrush"], card), "primary text on hover");
+        AssertContrast(palette["TextOnAccentBrush"], palette["AccentBrush"], "text on accent");
+        AssertContrast(palette["AccentTextBrush"], card, "accent text on card");
+        AssertContrast(palette["AccentTextBrush"], palette["AccentSubtleBrush"], "accent text on subtle accent");
+        AssertContrast(palette["SuccessForegroundBrush"], palette["SuccessBackgroundBrush"], "success badge");
+        AssertContrast(palette["CautionForegroundBrush"], palette["CautionBackgroundBrush"], "caution badge");
+        AssertContrast(palette["CriticalForegroundBrush"], palette["CriticalBackgroundBrush"], "critical badge");
+        AssertContrast(palette["NeutralBadgeForegroundBrush"], palette["NeutralBadgeBackgroundBrush"], "neutral badge");
+        AssertContrast(palette["TextPrimaryBrush"], window, "primary text on window");
     }
 
     [TestMethod]
     public void CellStyleBlocksThemeSelectionBrushes()
     {
         var snapshot = Snapshot.Value;
-
         Assert.AreEqual(Colors.Transparent, snapshot.CellBackground);
         Assert.AreEqual(Colors.Transparent, snapshot.CellBorder);
-        Assert.AreEqual(snapshot.Text, snapshot.CellForeground);
+        Assert.AreEqual("TextPrimaryBrush", snapshot.CellForegroundKey);
     }
 
     [TestMethod]
-    public void RowTextMeetsContrastInEveryRowState()
+    public void RowStyleDefinesHoverActiveAndInactiveSelectionStates()
     {
         var snapshot = Snapshot.Value;
+        Assert.IsGreaterThanOrEqualTo(0, snapshot.HoverTriggerIndex);
+        Assert.IsGreaterThanOrEqualTo(0, snapshot.SelectedTriggerIndex);
+        Assert.IsGreaterThan(snapshot.SelectedTriggerIndex, snapshot.InactiveTriggerIndex, "The inactive-selection trigger must follow the selected trigger.");
+    }
 
-        AssertContrast(snapshot.Text, snapshot.RowBackground, "row background");
-        AssertContrast(snapshot.Text, snapshot.AlternatingRowBackground, "alternating row background");
-        AssertContrast(snapshot.Text, snapshot.Hover, "hover background");
-        AssertContrast(snapshot.Text, snapshot.SelectionActive, "active selection background");
-        AssertContrast(snapshot.Text, snapshot.SelectionInactive, "inactive selection background");
+    private static int FindInactiveTriggerIndex(Style row) =>
+        Enumerable.Range(0, row.Triggers.Count).FirstOrDefault(index =>
+            row.Triggers[index] is MultiTrigger trigger &&
+            trigger.Conditions.Any(c => c.Property == DataGridRow.IsSelectedProperty && Equals(c.Value, true)) &&
+            trigger.Conditions.Any(c => c.Property == Selector.IsSelectionActiveProperty && Equals(c.Value, false)) &&
+            SetterResourceKey(trigger.Setters, Control.BackgroundProperty) == "ListItemSelectedHoverBrush", -1);
+
+    private static int FindTriggerIndex(Style style, DependencyProperty property, string brushKey)
+    {
+        for (var index = 0; index < style.Triggers.Count; index++)
+        {
+            if (style.Triggers[index] is Trigger trigger &&
+                trigger.Property == property &&
+                Equals(trigger.Value, true) &&
+                SetterResourceKey(trigger.Setters, Control.BackgroundProperty) == brushKey)
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private static Color SetterColor(Style style, DependencyProperty property)
+    {
+        var setter = style.Setters.OfType<Setter>().Single(item => item.Property == property);
+        return setter.Value switch
+        {
+            SolidColorBrush brush => brush.Color,
+            Color color => color,
+            _ => throw new AssertFailedException($"{property.Name} is not a solid color.")
+        };
+    }
+
+    private static string? SetterResourceKey(SetterBaseCollection setters, DependencyProperty property) =>
+        setters.OfType<Setter>().FirstOrDefault(setter => setter.Property == property)?.Value is DynamicResourceExtension resource
+            ? resource.ResourceKey as string
+            : null;
+
+    private static Color Composite(Color overlay, Color background)
+    {
+        var alpha = overlay.A / 255.0;
+        byte Mix(byte top, byte bottom) => (byte)Math.Round((top * alpha) + (bottom * (1 - alpha)));
+        return Color.FromRgb(Mix(overlay.R, background.R), Mix(overlay.G, background.G), Mix(overlay.B, background.B));
     }
 
     private static void AssertContrast(Color foreground, Color background, string state)
@@ -99,9 +172,9 @@ public sealed class DataGridSelectionStyleTests
         }
     }
 
-    private static StyleSnapshot LoadSnapshot()
+    private static ThemeSnapshot LoadSnapshot()
     {
-        StyleSnapshot? snapshot = null;
+        ThemeSnapshot? snapshot = null;
         Exception? failure = null;
         var thread = new Thread(() =>
         {
@@ -119,109 +192,34 @@ public sealed class DataGridSelectionStyleTests
         thread.Join();
         if (failure is not null)
         {
-            throw new InvalidOperationException("Failed to load App.xaml resources for style verification.", failure);
+            throw new InvalidOperationException("Failed to load theme resources for style verification.", failure);
         }
 
-        return snapshot ?? throw new InvalidOperationException("App.xaml style snapshot was not captured.");
+        return snapshot ?? throw new InvalidOperationException("Theme snapshot was not captured.");
     }
 
-    private static StyleSnapshot CaptureSnapshot()
+    private static ThemeSnapshot CaptureSnapshot()
     {
-        var app = Application.Current as AutoPowerApp ?? new AutoPowerApp();
-        app.InitializeComponent();
-        var resources = app.Resources;
+        _ = Application.Current as AutoPowerApp ?? new AutoPowerApp();
+        var light = Load("Themes/Light.xaml");
+        var dark = Load("Themes/Dark.xaml");
+        var controls = Load("Themes/Controls.xaml");
+        var cell = (Style)controls[typeof(DataGridCell)];
+        var row = (Style)controls[typeof(DataGridRow)];
+        return new ThemeSnapshot(
+            Colors(light),
+            Colors(dark),
+            SetterColor(cell, Control.BackgroundProperty),
+            SetterColor(cell, Control.BorderBrushProperty),
+            SetterResourceKey(cell.Setters, Control.ForegroundProperty),
+            FindTriggerIndex(row, UIElement.IsMouseOverProperty, "ListItemHoverBrush"),
+            FindTriggerIndex(row, DataGridRow.IsSelectedProperty, "ListItemSelectedBrush"),
+            FindInactiveTriggerIndex(row));
 
-        var text = BrushColor(resources, "TextBrush");
-        var hover = BrushColor(resources, "GridHoverBrush");
-        var selectionActive = BrushColor(resources, "GridSelectionBrush");
-        var selectionInactive = BrushColor(resources, "GridSelectionInactiveBrush");
+        static ResourceDictionary Load(string path) =>
+            (ResourceDictionary)Application.LoadComponent(new Uri($"/AutoPower.App;component/{path}", UriKind.Relative));
 
-        var gridStyle = (Style)resources[typeof(DataGrid)];
-        var rowBackground = SetterColor(gridStyle, DataGrid.RowBackgroundProperty);
-        var alternatingRowBackground = SetterColor(gridStyle, DataGrid.AlternatingRowBackgroundProperty);
-
-        var cellStyle = (Style)resources[typeof(DataGridCell)];
-        var cellForeground = SetterColor(cellStyle, DataGridCell.ForegroundProperty);
-        var cellBackground = SetterColor(cellStyle, DataGridCell.BackgroundProperty);
-        var cellBorder = SetterColor(cellStyle, DataGridCell.BorderBrushProperty);
-
-        var rowStyle = (Style)resources[typeof(DataGridRow)];
-        var hoverTriggerIndex = FindTriggerIndex(rowStyle, UIElement.IsMouseOverProperty, expectedValue: true, hover);
-        var selectedTriggerIndex = FindTriggerIndex(rowStyle, DataGridRow.IsSelectedProperty, expectedValue: true, selectionActive);
-        var inactiveTriggerIndex = FindInactiveSelectionTriggerIndex(rowStyle, selectionInactive);
-
-        return new StyleSnapshot(
-            text,
-            rowBackground,
-            alternatingRowBackground,
-            hover,
-            selectionActive,
-            selectionInactive,
-            cellForeground,
-            cellBackground,
-            cellBorder,
-            hoverTriggerIndex >= 0,
-            selectedTriggerIndex >= 0,
-            inactiveTriggerIndex >= 0,
-            inactiveTriggerIndex > selectedTriggerIndex && selectedTriggerIndex >= 0);
-    }
-
-    private static Color BrushColor(ResourceDictionary resources, string key)
-    {
-        Assert.IsTrue(resources.Contains(key), $"App resource '{key}' is missing.");
-        return ((SolidColorBrush)resources[key]).Color;
-    }
-
-    private static Color SetterColor(Style style, DependencyProperty property)
-    {
-        var setter = style.Setters.OfType<Setter>().Single(item => item.Property == property);
-        return ((SolidColorBrush)setter.Value).Color;
-    }
-
-    private static int FindTriggerIndex(Style style, DependencyProperty property, bool expectedValue, Color expectedBackground)
-    {
-        for (var index = 0; index < style.Triggers.Count; index++)
-        {
-            if (style.Triggers[index] is Trigger trigger &&
-                trigger.Property == property &&
-                trigger.Value is bool value &&
-                value == expectedValue &&
-                TriggerSetsBackground(trigger.Setters, expectedBackground))
-            {
-                return index;
-            }
-        }
-
-        return -1;
-    }
-
-    private static int FindInactiveSelectionTriggerIndex(Style style, Color expectedBackground)
-    {
-        for (var index = 0; index < style.Triggers.Count; index++)
-        {
-            if (style.Triggers[index] is MultiTrigger trigger &&
-                HasCondition(trigger, DataGridRow.IsSelectedProperty, expected: true) &&
-                HasCondition(trigger, Selector.IsSelectionActiveProperty, expected: false) &&
-                TriggerSetsBackground(trigger.Setters, expectedBackground))
-            {
-                return index;
-            }
-        }
-
-        return -1;
-    }
-
-    private static bool HasCondition(MultiTrigger trigger, DependencyProperty property, bool expected)
-    {
-        return trigger.Conditions.Any(condition =>
-            condition.Property == property && condition.Value is bool value && value == expected);
-    }
-
-    private static bool TriggerSetsBackground(SetterBaseCollection setters, Color expected)
-    {
-        return setters.OfType<Setter>().Any(setter =>
-            setter.Property == Control.BackgroundProperty &&
-            setter.Value is SolidColorBrush brush &&
-            brush.Color == expected);
+        static IReadOnlyDictionary<string, Color> Colors(ResourceDictionary dictionary) =>
+            dictionary.Keys.OfType<string>().ToDictionary(key => key, key => ((SolidColorBrush)dictionary[key]).Color, StringComparer.Ordinal);
     }
 }

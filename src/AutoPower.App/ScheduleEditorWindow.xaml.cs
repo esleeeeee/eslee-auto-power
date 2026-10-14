@@ -3,62 +3,62 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using AutoPower.App.Controls;
 using AutoPower.Core;
 using AutoPower.Windows;
 using MessageBox = AutoPower.App.LocalizedMessageBox;
 
 namespace AutoPower.App;
 
-public partial class ScheduleEditorWindow : Window
+public partial class ScheduleEditorWindow : ThemedWindow
 {
     private readonly PowerSchedule? _existing;
+    private readonly bool _duplicate;
     private readonly PowerCapabilitySnapshot _capability;
     private readonly Dictionary<string, CompatibilityResult> _compatibility;
     private readonly IReadOnlyList<PowerSchedule> _schedules;
+    private readonly bool _initialized;
 
     public ScheduleEditorWindow(
         PowerSchedule? existing,
         PowerCapabilitySnapshot capability,
         IReadOnlyList<CompatibilityResult> compatibility,
-        IReadOnlyList<PowerSchedule> schedules)
+        IReadOnlyList<PowerSchedule> schedules,
+        bool duplicate = false)
     {
         InitializeComponent();
         _existing = existing;
+        _duplicate = duplicate && existing is not null;
         _capability = capability;
         _compatibility = compatibility.ToDictionary(item => item.Capability, StringComparer.Ordinal);
         _schedules = schedules;
         DataContext = this;
         DateInput.DisplayDateStart = DateTime.Today;
+        Programs.CollectionChanged += (_, _) => UpdateProgramsEmptyState();
 
-        ActionInput.ItemsSource = new[]
-        {
-            new ActionOption(AppText.T("자동 시작 예약"), EditorAction.AutomaticStart),
-            new ActionOption(AppText.T("예약 시각에 완전 종료"), EditorAction.Shutdown),
-            new ActionOption(AppText.T("예약 시각에 최대 절전 진입"), EditorAction.Hibernate),
-            new ActionOption(AppText.T("예약 시각에 절전 진입"), EditorAction.Sleep)
-        };
         WakeModeInput.ItemsSource = new[]
         {
-            new WakeModeOption(AppText.T("자동 선택 (추천)"), WakeModePreference.Automatic),
-            new WakeModeOption(AppText.T("절전 (S3)"), WakeModePreference.SleepS3),
-            new WakeModeOption(AppText.T("최대 절전 (S4)"), WakeModePreference.HibernateS4)
+            new ChoiceOption<WakeModePreference>(WakeModePreference.Automatic, AppText.T("자동 선택 (추천)")),
+            new ChoiceOption<WakeModePreference>(WakeModePreference.SleepS3, AppText.T("절전 (S3)")),
+            new ChoiceOption<WakeModePreference>(WakeModePreference.HibernateS4, AppText.T("최대 절전 (S4)"))
         };
 
         if (existing is null)
         {
             SetPlannedTime(ScheduleTimePolicy.NewScheduleDefault(DateTime.Now));
-            ActionInput.SelectedValue = EditorAction.AutomaticStart;
+            ActionWake.IsChecked = true;
             WakeModeInput.SelectedValue = WakeModePreference.Automatic;
             OneTimeAutoLogonCheck.IsChecked = true;
         }
         else
         {
-            Heading.Text = AppText.T(PowerSchedulePolicy.IsRemovedSchedule(existing.ActionType)
-                ? "이전 전원 예약 전환"
-                : "예약 수정");
-            DateInput.SelectedDate = existing.ScheduledLocalDateTime.Date;
-            TimeInput.Text = existing.ScheduledLocalDateTime.ToString("HH:mm", CultureInfo.InvariantCulture);
-            ActionInput.SelectedValue = ToEditorAction(existing.ActionType);
+            Heading.Text = AppText.T(_duplicate
+                ? "예약 복제"
+                : PowerSchedulePolicy.IsRemovedSchedule(existing.ActionType)
+                    ? "이전 전원 예약 전환"
+                    : "예약 수정");
+            SetPlannedTime(existing.ScheduledLocalDateTime);
+            ActionButton(ToEditorAction(existing.ActionType)).IsChecked = true;
             WakeModeInput.SelectedValue = existing.ActionType switch
             {
                 PowerActionType.WakeFromSleep => WakeModePreference.SleepS3,
@@ -66,31 +66,61 @@ public partial class ScheduleEditorWindow : Window
                 _ => WakeModePreference.Automatic
             };
             OneTimeAutoLogonCheck.IsChecked = existing.OneTimeAutoLogonEnabled;
+            NameInput.Text = existing.Name ?? string.Empty;
+            LoadRecurrence(existing.Recurrence);
 
             foreach (var item in existing.FollowUpPrograms.OrderBy(program => program.SortOrder))
             {
-                Programs.Add(new ProgramDraft(item.Id, item.ExecutablePath, item.DelayAfterDesktopReadyMinutes,
-                    item.Arguments, item.WorkingDirectory, item.RunElevated));
+                Programs.Add(new ProgramDraft(
+                    _duplicate ? Guid.NewGuid() : item.Id,
+                    item.ExecutablePath,
+                    item.DelayAfterDesktopReadyMinutes,
+                    item.Arguments,
+                    item.WorkingDirectory,
+                    item.RunElevated));
             }
         }
 
+        Title = Heading.Text;
+        _initialized = true;
+        UpdateProgramsEmptyState();
         UpdateActionPanels();
+        UpdateRepeatPanel();
     }
 
     public ObservableCollection<ProgramDraft> Programs { get; } = [];
     public PowerSchedule? ResultSchedule { get; private set; }
 
-    private void ActionInput_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateActionPanels();
+    private EditorAction SelectedAction =>
+        ActionShutdown.IsChecked == true ? EditorAction.Shutdown :
+        ActionHibernate.IsChecked == true ? EditorAction.Hibernate :
+        ActionSleep.IsChecked == true ? EditorAction.Sleep :
+        EditorAction.AutomaticStart;
+
+    private System.Windows.Controls.RadioButton ActionButton(EditorAction action) => action switch
+    {
+        EditorAction.Shutdown => ActionShutdown,
+        EditorAction.Hibernate => ActionHibernate,
+        EditorAction.Sleep => ActionSleep,
+        _ => ActionWake
+    };
+
+    private void Action_Checked(object sender, RoutedEventArgs e) => UpdateActionPanels();
 
     private void WakeModeInput_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateWakeModeNotice();
 
+    private void When_Changed(object sender, RoutedEventArgs e) => UpdateNextRunPreview();
+
+    private void Repeat_Changed(object sender, RoutedEventArgs e) => UpdateRepeatPanel();
+
     private void UpdateActionPanels()
     {
-        if (WakeOptions is null || ActionInput.SelectedValue is not EditorAction action)
+        if (!_initialized)
         {
             return;
         }
 
+        var action = SelectedAction;
         var automaticStart = action == EditorAction.AutomaticStart;
         var powerAction = ToPowerTransitionAction(action);
         var shutdown = powerAction == PowerActionType.Shutdown;
@@ -111,41 +141,38 @@ public partial class ScheduleEditorWindow : Window
         }
     }
 
-    private void PowerAfterOneHour_Click(object sender, RoutedEventArgs e) =>
-        SetQuickPowerTime(1);
+    // ----- Quick time -----
 
-    private void PowerAfterTwoHours_Click(object sender, RoutedEventArgs e) =>
-        SetQuickPowerTime(2);
-
-    private void SetQuickPowerTime(int hours)
+    private void QuickTime_Click(object sender, RoutedEventArgs e)
     {
-        if (ActionInput.SelectedValue is not EditorAction action ||
-            ToPowerTransitionAction(action) is null)
+        if (sender is not FrameworkElement { Tag: string tag } ||
+            !int.TryParse(tag, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes) ||
+            ToPowerTransitionAction(SelectedAction) is null)
         {
             return;
         }
 
-        SetPlannedTime(ScheduleTimePolicy.QuickPowerTransition(DateTime.Now, hours));
+        SetPlannedTime(QuickSchedulePolicy.At(DateTime.Now, minutes));
     }
 
     private void UpdateQuickPowerAccessibility(PowerActionType action)
     {
-        var actionName = AppText.T(action switch
-        {
-            PowerActionType.Shutdown => "완전 종료",
-            PowerActionType.Hibernate => "최대 절전",
-            PowerActionType.Sleep => "절전",
-            _ => throw new ArgumentOutOfRangeException(nameof(action))
-        });
-        SetQuickPowerAccessibility(PowerAfterOneHourButton, actionName, 1);
-        SetQuickPowerAccessibility(PowerAfterTwoHoursButton, actionName, 2);
+        var actionName = UiText.ActionName(action);
+        SetQuickPowerAccessibility(PowerAfter30Button, actionName, 30);
+        SetQuickPowerAccessibility(PowerAfterOneHourButton, actionName, 60);
+        SetQuickPowerAccessibility(PowerAfterTwoHoursButton, actionName, 120);
+        SetQuickPowerAccessibility(PowerAfter3HoursButton, actionName, 180);
     }
 
-    private static void SetQuickPowerAccessibility(System.Windows.Controls.Button button, string actionName, int hours)
+    private static void SetQuickPowerAccessibility(System.Windows.Controls.Button button, string actionName, int minutes)
     {
         var description = AppText.IsEnglish
-            ? $"Schedule {actionName.ToLowerInvariant()} for {hours} hour{(hours == 1 ? string.Empty : "s")} from the current local time."
-            : $"현재 로컬 시각에서 {hours}시간 뒤에 {actionName} 예약";
+            ? minutes < 60
+                ? $"Schedule {actionName.ToLowerInvariant()} for {minutes} minutes from the current local time."
+                : $"Schedule {actionName.ToLowerInvariant()} for {minutes / 60} hour{(minutes == 60 ? string.Empty : "s")} from the current local time."
+            : minutes < 60
+                ? $"현재 로컬 시각에서 {minutes}분 뒤에 {actionName} 예약"
+                : $"현재 로컬 시각에서 {minutes / 60}시간 뒤에 {actionName} 예약";
         button.ToolTip = description;
         System.Windows.Automation.AutomationProperties.SetName(button, description);
         System.Windows.Automation.AutomationProperties.SetHelpText(button, description);
@@ -157,9 +184,136 @@ public partial class ScheduleEditorWindow : Window
         TimeInput.Text = planned.ToString("HH:mm", CultureInfo.InvariantCulture);
     }
 
+    private bool TryReadPlanned(out DateTime planned)
+    {
+        planned = default;
+        if (DateInput.SelectedDate is not DateTime date ||
+            !TimeSpan.TryParseExact(TimeInput.Text.Trim(), ["h\\:mm", "hh\\:mm"], CultureInfo.InvariantCulture, out var time))
+        {
+            return false;
+        }
+
+        planned = DateTime.SpecifyKind(date.Date + time, DateTimeKind.Unspecified);
+        return true;
+    }
+
+    // ----- Recurrence -----
+
+    private void LoadRecurrence(RecurrenceRule? rule)
+    {
+        switch (rule?.Kind)
+        {
+            case RecurrenceKind.Daily:
+                RepeatDaily.IsChecked = true;
+                break;
+            case RecurrenceKind.Weekdays:
+                RepeatWeekdays.IsChecked = true;
+                break;
+            case RecurrenceKind.Weekly:
+                RepeatWeekly.IsChecked = true;
+                foreach (var (day, toggle) in DayToggles())
+                {
+                    toggle.IsChecked = rule.AllowsDay(day);
+                }
+
+                break;
+            default:
+                RepeatNone.IsChecked = true;
+                break;
+        }
+    }
+
+    private IEnumerable<(DayOfWeek Day, System.Windows.Controls.Primitives.ToggleButton Toggle)> DayToggles() =>
+    [
+        (DayOfWeek.Monday, DayMonday),
+        (DayOfWeek.Tuesday, DayTuesday),
+        (DayOfWeek.Wednesday, DayWednesday),
+        (DayOfWeek.Thursday, DayThursday),
+        (DayOfWeek.Friday, DayFriday),
+        (DayOfWeek.Saturday, DaySaturday),
+        (DayOfWeek.Sunday, DaySunday)
+    ];
+
+    private void UpdateRepeatPanel()
+    {
+        if (!_initialized)
+        {
+            return;
+        }
+
+        WeekdayPanel.Visibility = RepeatWeekly.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        if (RepeatWeekly.IsChecked == true && !DayToggles().Any(item => item.Toggle.IsChecked == true) &&
+            TryReadPlanned(out var planned))
+        {
+            // Start the day picker from the chosen date so the first occurrence stays where the user put it.
+            DayToggles().First(item => item.Day == planned.DayOfWeek).Toggle.IsChecked = true;
+        }
+
+        UpdateNextRunPreview();
+    }
+
+    /// <summary>The selected rule, or null for a one-time schedule. The time of day comes from the time field.</summary>
+    private RecurrenceRule? BuildRule(TimeSpan timeOfDay)
+    {
+        if (RepeatDaily.IsChecked == true)
+        {
+            return RecurrenceRule.CreateDaily(timeOfDay);
+        }
+
+        if (RepeatWeekdays.IsChecked == true)
+        {
+            return RecurrenceRule.CreateWeekdays(timeOfDay);
+        }
+
+        if (RepeatWeekly.IsChecked == true)
+        {
+            var days = DayToggles()
+                .Where(item => item.Toggle.IsChecked == true)
+                .Aggregate(RecurrenceDays.None, (current, item) => current | RecurrencePolicy.ToFlag(item.Day));
+            return RecurrenceRule.CreateWeekly(days, timeOfDay);
+        }
+
+        return null;
+    }
+
+    private void UpdateNextRunPreview()
+    {
+        if (!_initialized || NextRunPreview is null)
+        {
+            return;
+        }
+
+        if (!TryReadPlanned(out var planned))
+        {
+            NextRunPreview.Text = AppText.T("날짜와 시간(HH:mm)을 입력하세요.");
+            return;
+        }
+
+        var rule = BuildRule(planned.TimeOfDay);
+        if (rule is null)
+        {
+            NextRunPreview.Text = AppText.F("한 번 실행: {0}", $"{UiText.LongDate(planned)} {planned:HH:mm}");
+            return;
+        }
+
+        if (!RecurrencePolicy.IsUsable(rule))
+        {
+            NextRunPreview.Text = AppText.T("반복할 요일을 하나 이상 고르세요.");
+            return;
+        }
+
+        var first = RecurrencePolicy.FirstOccurrence(rule, planned, DateTime.Now);
+        NextRunPreview.Text = AppText.F(
+            "{0} · 첫 실행: {1}",
+            RecurrencePolicy.Describe(rule, AppText.LanguageCode),
+            $"{UiText.LongDate(first)} {first:HH:mm}");
+    }
+
+    // ----- Wake mode -----
+
     private void UpdateWakeModeNotice()
     {
-        if (WakeModeNotice is null || WakeModeInput.SelectedValue is not WakeModePreference preference)
+        if (!_initialized || WakeModeInput.SelectedValue is not WakeModePreference preference)
         {
             return;
         }
@@ -189,6 +343,11 @@ public partial class ScheduleEditorWindow : Window
         }
     }
 
+    // ----- Follow-up programs -----
+
+    private void UpdateProgramsEmptyState() =>
+        NoProgramsText.Visibility = Programs.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
     private void AddProgram_Click(object sender, RoutedEventArgs e)
     {
         var editor = new ProgramEditorWindow { Owner = this };
@@ -198,25 +357,41 @@ public partial class ScheduleEditorWindow : Window
         }
     }
 
+    private void EditProgram_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not ProgramDraft selected)
+        {
+            return;
+        }
+
+        var editor = new ProgramEditorWindow(selected) { Owner = this };
+        if (editor.ShowDialog() == true && editor.Result is not null)
+        {
+            var index = Programs.IndexOf(selected);
+            Programs[index] = editor.Result;
+        }
+    }
+
     private void RemoveProgram_Click(object sender, RoutedEventArgs e)
     {
-        if (ProgramsGrid.SelectedItem is ProgramDraft selected)
+        if ((sender as FrameworkElement)?.DataContext is ProgramDraft selected)
         {
             Programs.Remove(selected);
         }
     }
 
+    // ----- Save -----
+
     private void Save_Click(object sender, RoutedEventArgs e)
     {
-        if (DateInput.SelectedDate is not DateTime date ||
-            !TimeSpan.TryParseExact(TimeInput.Text.Trim(), ["h\\:mm", "hh\\:mm"], CultureInfo.InvariantCulture, out var time) ||
-            ActionInput.SelectedValue is not EditorAction editorAction)
+        if (!TryReadPlanned(out var planned))
         {
             MessageBox.Show("올바른 날짜, 시간(HH:mm), 동작을 입력하세요.", "예약",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
+        var editorAction = SelectedAction;
         PowerActionType action;
         if (editorAction == EditorAction.AutomaticStart)
         {
@@ -244,8 +419,20 @@ public partial class ScheduleEditorWindow : Window
                      ?? throw new InvalidOperationException("지원하지 않는 예약 동작입니다.");
         }
 
-        var planned = DateTime.SpecifyKind(date.Date + time, DateTimeKind.Unspecified);
-        var id = _existing?.Id ?? Guid.NewGuid();
+        var rule = BuildRule(planned.TimeOfDay);
+        if (rule is not null)
+        {
+            if (!RecurrencePolicy.IsUsable(rule))
+            {
+                MessageBox.Show("반복할 요일을 하나 이상 고르세요.", "반복", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            planned = RecurrencePolicy.FirstOccurrence(rule, planned, DateTime.Now);
+        }
+
+        var editing = _existing is not null && !_duplicate;
+        var id = editing ? _existing!.Id : Guid.NewGuid();
         var now = DateTimeOffset.UtcNow;
         var programs = PowerSchedulePolicy.IsWakeSchedule(action)
             ? Programs.Select((item, index) => new FollowUpProgram(item.Id, id, item.ExecutablePath, item.DelayMinutes,
@@ -258,12 +445,18 @@ public partial class ScheduleEditorWindow : Window
             id,
             planned,
             action,
-            _existing?.IsEnabled ?? true,
+            editing ? _existing!.IsEnabled : true,
             PowerSchedulePolicy.IsWakeSchedule(action) && OneTimeAutoLogonCheck.IsChecked == true,
-            _existing?.CreatedAtUtc ?? now,
+            editing ? _existing!.CreatedAtUtc : now,
             now,
-            _existing?.Status is ScheduleStatus.Disabled ? ScheduleStatus.Disabled : ScheduleStatus.Pending,
-            programs);
+            editing && _existing!.Status is ScheduleStatus.Disabled ? ScheduleStatus.Disabled : ScheduleStatus.Pending,
+            programs)
+        {
+            Name = NameInput.Text,
+            Recurrence = rule,
+            // Editing the live occurrence edits its series; a duplicate starts a new one.
+            SeriesId = editing ? _existing!.SeriesId : null
+        };
         var validation = ScheduleValidator.Validate(candidate, DateTime.Now, _schedules);
         if (!validation.IsValid)
         {
@@ -278,7 +471,7 @@ public partial class ScheduleEditorWindow : Window
         if (action == PowerActionType.Shutdown)
         {
             var nextWake = ScheduleValidator.SelectNextWake(
-                _schedules.Where(schedule => schedule.Id != _existing?.Id),
+                _schedules.Where(schedule => schedule.Id != id),
                 planned);
             var warning = ShutdownConsequence.Describe(nextWake) + "\n\n" +
                 (AppText.IsEnglish ? "Save this full-shutdown schedule anyway?" : "그래도 완전 종료 예약을 저장하시겠습니까?");
@@ -341,9 +534,6 @@ public partial class ScheduleEditorWindow : Window
         Hibernate,
         Sleep
     }
-
-    private sealed record ActionOption(string Text, EditorAction Value);
-    private sealed record WakeModeOption(string Text, WakeModePreference Value);
 }
 
 public sealed record ProgramDraft(
@@ -356,4 +546,8 @@ public sealed record ProgramDraft(
 {
     public string FileName => Path.GetFileName(ExecutablePath);
     public string PrivilegeText => AppText.T(RunElevated ? "관리자" : "일반");
+    public string DelayText => RunElevated
+        ? AppText.F("T0 + {0}분 · 관리자", DelayMinutes)
+        : AppText.F("T0 + {0}분", DelayMinutes);
+    public override string ToString() => $"{FileName}, {DelayText}";
 }

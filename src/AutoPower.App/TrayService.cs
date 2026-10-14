@@ -10,9 +10,9 @@ public sealed class TrayService : IDisposable
     private readonly Forms.NotifyIcon _icon;
     private readonly TrayQuickShutdownController _quickShutdown;
     private readonly Icon? _applicationIcon;
-    private Forms.ToolStripMenuItem _oneHourShutdownItem = null!;
-    private Forms.ToolStripMenuItem _twoHourShutdownItem = null!;
+    private readonly List<Forms.ToolStripItem> _quickItems = [];
     private Forms.ToolStripMenuItem _nextItem = null!;
+    private Forms.ToolStripMenuItem? _resumeAllItem;
 
     public TrayService(MainWindow window)
     {
@@ -31,7 +31,14 @@ public sealed class TrayService : IDisposable
         _quickShutdown.BusyChanged += QuickShutdown_BusyChanged;
 
         var menu = CreateMenu(window);
-        menu.Opening += (_, _) => _nextItem.Text = AppText.T($"다음 예약: {window.NextScheduleSummary}");
+        menu.Opening += (_, _) =>
+        {
+            _nextItem.Text = AppText.F("다음 예약: {0}", window.NextScheduleSummary);
+            if (_resumeAllItem is not null)
+            {
+                _resumeAllItem.Enabled = window.HasPausedSchedules;
+            }
+        };
 
         _applicationIcon = Icon.ExtractAssociatedIcon(AppServices.Layout.AppPath);
         _icon = new Forms.NotifyIcon
@@ -47,6 +54,8 @@ public sealed class TrayService : IDisposable
     private Forms.ContextMenuStrip CreateMenu(MainWindow window)
     {
         var menu = new Forms.ContextMenuStrip();
+        Forms.ToolStripMenuItem? moreQuick = null;
+        PowerActionType? lastQuickAction = null;
         foreach (var entry in TrayMenuLayout.Entries)
         {
             if (entry.Command == TrayMenuCommand.Separator)
@@ -56,22 +65,41 @@ public sealed class TrayService : IDisposable
             }
 
             var item = new Forms.ToolStripMenuItem(AppText.T(entry.KoreanText!));
-            menu.Items.Add(item);
+            if (entry.Command == TrayMenuCommand.QuickSchedule)
+            {
+                // Additional quick schedules live in one submenu so the first level keeps
+                // the familiar two-click "shut down in 1/2 hours" items.
+                if (moreQuick is null)
+                {
+                    moreQuick = new Forms.ToolStripMenuItem(AppText.T("빠른 예약 더 보기"));
+                    menu.Items.Add(moreQuick);
+                    _quickItems.Add(moreQuick);
+                }
+                else if (lastQuickAction != entry.QuickAction)
+                {
+                    moreQuick.DropDownItems.Add(new Forms.ToolStripSeparator());
+                }
+
+                lastQuickAction = entry.QuickAction;
+                moreQuick.DropDownItems.Add(item);
+            }
+            else
+            {
+                menu.Items.Add(item);
+            }
+
             switch (entry.Command)
             {
                 case TrayMenuCommand.QuickShutdown:
                     var hours = entry.QuickShutdownHours
                                 ?? throw new InvalidOperationException("빠른 완전 종료 메뉴에 시간 값이 없습니다.");
                     item.Click += async (_, _) => await InvokeAsync(() => _quickShutdown.ExecuteAsync(hours));
-                    if (hours == 1)
-                    {
-                        _oneHourShutdownItem = item;
-                    }
-                    else
-                    {
-                        _twoHourShutdownItem = item;
-                    }
-
+                    _quickItems.Add(item);
+                    break;
+                case TrayMenuCommand.QuickSchedule:
+                    var action = entry.QuickAction ?? throw new InvalidOperationException("빠른 예약 메뉴에 동작 값이 없습니다.");
+                    var minutes = entry.QuickMinutes ?? throw new InvalidOperationException("빠른 예약 메뉴에 시간 값이 없습니다.");
+                    item.Click += async (_, _) => await InvokeAsync(() => _quickShutdown.ExecuteAsync(action, minutes));
                     break;
                 case TrayMenuCommand.NextSchedule:
                     item.Enabled = false;
@@ -86,6 +114,10 @@ public sealed class TrayService : IDisposable
                 case TrayMenuCommand.PauseAll:
                     item.Click += async (_, _) => await InvokeAsync(window.PauseAllAsync);
                     break;
+                case TrayMenuCommand.ResumeAll:
+                    item.Click += async (_, _) => await InvokeAsync(window.ResumeAllAsync);
+                    _resumeAllItem = item;
+                    break;
                 case TrayMenuCommand.ExitApp:
                     item.Click += (_, _) => Invoke(window.RequestExit);
                     break;
@@ -95,6 +127,13 @@ public sealed class TrayService : IDisposable
         }
 
         return menu;
+    }
+
+    /// <summary>Updates the tooltip with the next action and its remaining time. UI thread only.</summary>
+    public void UpdateStatus()
+    {
+        var text = _window.TrayTooltip;
+        _icon.Text = text.Length <= 127 ? text : text[..127];
     }
 
     /// <summary>
@@ -107,7 +146,7 @@ public sealed class TrayService : IDisposable
     /// Tray Folder가 렌더링할 현재 트레이 메뉴 스냅숏입니다. UI 스레드에서 호출해야 합니다.
     /// </summary>
     internal IReadOnlyList<TrayHostMenuItem> BuildHostedMenuItems() =>
-        TrayHostedMenuBuilder.Build(_quickShutdown.IsBusy, _window.NextScheduleSummary);
+        TrayHostedMenuBuilder.Build(_quickShutdown.IsBusy, _window.NextScheduleSummary, _window.HasPausedSchedules);
 
     /// <summary>
     /// Tray Folder 메뉴에서 클릭된 항목을 실행합니다. 자체 트레이 메뉴의 클릭 핸들러와
@@ -134,10 +173,21 @@ public sealed class TrayService : IDisposable
             case TrayMenuActionIds.PauseAll:
                 StartMenuWork("tray-host.menu.pause-all", _window.PauseAllAsync);
                 return true;
+            case TrayMenuActionIds.ResumeAll:
+                StartMenuWork("tray-host.menu.resume-all", _window.ResumeAllAsync);
+                return true;
             case TrayMenuActionIds.ExitApp:
                 PostMenuAction("tray-host.menu.exit-app", _window.RequestExit);
                 return true;
             default:
+                if (TrayMenuLayout.Entries.FirstOrDefault(entry =>
+                        entry.Command == TrayMenuCommand.QuickSchedule &&
+                        string.Equals(entry.ActionId, actionId, StringComparison.Ordinal)) is { } quick)
+                {
+                    StartMenuWork($"tray-host.menu.{actionId}", () => _quickShutdown.ExecuteAsync(quick.QuickAction!.Value, quick.QuickMinutes!.Value));
+                    return true;
+                }
+
                 return false;
         }
     }
@@ -183,8 +233,10 @@ public sealed class TrayService : IDisposable
     {
         void UpdateItems()
         {
-            _oneHourShutdownItem.Enabled = !isBusy;
-            _twoHourShutdownItem.Enabled = !isBusy;
+            foreach (var item in _quickItems)
+            {
+                item.Enabled = !isBusy;
+            }
         }
 
         var dispatcher = System.Windows.Application.Current.Dispatcher;
@@ -245,14 +297,18 @@ internal enum TrayMenuCommand
     OpenApp,
     NewSchedule,
     PauseAll,
-    ExitApp
+    ExitApp,
+    QuickSchedule,
+    ResumeAll
 }
 
 internal sealed record TrayMenuEntry(
     TrayMenuCommand Command,
     string? KoreanText = null,
     int? QuickShutdownHours = null,
-    string? ActionId = null);
+    string? ActionId = null,
+    PowerActionType? QuickAction = null,
+    int? QuickMinutes = null);
 
 /// <summary>Tray Folder 파이프 메뉴에서 쓰는 항목 id입니다. 프로토콜의 일부이므로 바꾸면 안 됩니다.</summary>
 internal static class TrayMenuActionIds
@@ -264,6 +320,25 @@ internal static class TrayMenuActionIds
     public const string NewSchedule = "new-schedule";
     public const string PauseAll = "pause-all";
     public const string ExitApp = "exit-app";
+
+    // Added in v2.0.0.
+    public const string ResumeAll = "resume-all";
+
+    /// <summary>"quick-shutdown-30m", "quick-hibernate-3h", "quick-sleep-1h" and so on.</summary>
+    public static string Quick(PowerActionType action, int minutes)
+    {
+        var name = action switch
+        {
+            PowerActionType.Shutdown => "shutdown",
+            PowerActionType.Hibernate => "hibernate",
+            PowerActionType.Sleep => "sleep",
+            _ => throw new ArgumentOutOfRangeException(nameof(action))
+        };
+        var delay = minutes % 60 == 0
+            ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{minutes / 60}h")
+            : string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{minutes}m");
+        return $"quick-{name}-{delay}";
+    }
 }
 
 internal static class TrayMenuLayout
@@ -272,26 +347,43 @@ internal static class TrayMenuLayout
     [
         new(TrayMenuCommand.QuickShutdown, "1시간 후 완전 종료", 1, TrayMenuActionIds.QuickShutdownOneHour),
         new(TrayMenuCommand.QuickShutdown, "2시간 후 완전 종료", 2, TrayMenuActionIds.QuickShutdownTwoHours),
+        QuickEntry(PowerActionType.Shutdown, 30, "30분 후 완전 종료"),
+        QuickEntry(PowerActionType.Shutdown, 180, "3시간 후 완전 종료"),
+        QuickEntry(PowerActionType.Hibernate, 30, "30분 후 최대 절전"),
+        QuickEntry(PowerActionType.Hibernate, 60, "1시간 후 최대 절전"),
+        QuickEntry(PowerActionType.Hibernate, 120, "2시간 후 최대 절전"),
+        QuickEntry(PowerActionType.Hibernate, 180, "3시간 후 최대 절전"),
+        QuickEntry(PowerActionType.Sleep, 30, "30분 후 절전"),
+        QuickEntry(PowerActionType.Sleep, 60, "1시간 후 절전"),
+        QuickEntry(PowerActionType.Sleep, 120, "2시간 후 절전"),
+        QuickEntry(PowerActionType.Sleep, 180, "3시간 후 절전"),
         new(TrayMenuCommand.Separator),
         new(TrayMenuCommand.NextSchedule, "다음 예약: 확인 중", null, TrayMenuActionIds.NextSchedule),
         new(TrayMenuCommand.Separator),
         new(TrayMenuCommand.OpenApp, "앱 열기", null, TrayMenuActionIds.OpenApp),
         new(TrayMenuCommand.NewSchedule, "새 예약", null, TrayMenuActionIds.NewSchedule),
         new(TrayMenuCommand.PauseAll, "모든 예약 일시 중지", null, TrayMenuActionIds.PauseAll),
+        new(TrayMenuCommand.ResumeAll, "꺼 둔 예약 모두 다시 켜기", null, TrayMenuActionIds.ResumeAll),
         new(TrayMenuCommand.Separator),
         new(TrayMenuCommand.ExitApp, "앱 종료", null, TrayMenuActionIds.ExitApp)
     ]);
+
+    private static TrayMenuEntry QuickEntry(PowerActionType action, int minutes, string koreanText) =>
+        new(TrayMenuCommand.QuickSchedule, koreanText, null, TrayMenuActionIds.Quick(action, minutes), action, minutes);
 }
 
 /// <summary>
 /// 기존 트레이 메뉴 레이아웃(TrayMenuLayout)을 Tray Folder 파이프 메뉴 항목으로
 /// 변환합니다. 자체 NotifyIcon 메뉴와 같은 데이터를 쓰므로 두 메뉴가 어긋나지 않습니다.
+/// 파이프 프로토콜 v1에는 하위 메뉴가 없으므로 추가 빠른 예약은 동작별 구분선과 함께
+/// 같은 단계에 나열합니다.
 /// </summary>
 internal static class TrayHostedMenuBuilder
 {
-    public static IReadOnlyList<TrayHostMenuItem> Build(bool quickShutdownBusy, string nextScheduleSummary)
+    public static IReadOnlyList<TrayHostMenuItem> Build(bool quickShutdownBusy, string nextScheduleSummary, bool hasPausedSchedules = true)
     {
-        var items = new List<TrayHostMenuItem>(TrayMenuLayout.Entries.Count);
+        var items = new List<TrayHostMenuItem>(TrayMenuLayout.Entries.Count + 3);
+        PowerActionType? lastQuickAction = null;
         foreach (var entry in TrayMenuLayout.Entries)
         {
             switch (entry.Command)
@@ -302,7 +394,7 @@ internal static class TrayHostedMenuBuilder
                 case TrayMenuCommand.NextSchedule:
                     items.Add(TrayHostMenuItem.Action(
                         entry.ActionId!,
-                        AppText.T($"다음 예약: {nextScheduleSummary}"),
+                        AppText.F("다음 예약: {0}", nextScheduleSummary),
                         enabled: false));
                     break;
                 case TrayMenuCommand.QuickShutdown:
@@ -310,6 +402,21 @@ internal static class TrayHostedMenuBuilder
                         entry.ActionId!,
                         AppText.T(entry.KoreanText!),
                         enabled: !quickShutdownBusy));
+                    break;
+                case TrayMenuCommand.QuickSchedule:
+                    if (lastQuickAction != entry.QuickAction)
+                    {
+                        items.Add(TrayHostMenuItem.Separator);
+                    }
+
+                    lastQuickAction = entry.QuickAction;
+                    items.Add(TrayHostMenuItem.Action(
+                        entry.ActionId!,
+                        AppText.T(entry.KoreanText!),
+                        enabled: !quickShutdownBusy));
+                    break;
+                case TrayMenuCommand.ResumeAll:
+                    items.Add(TrayHostMenuItem.Action(entry.ActionId!, AppText.T(entry.KoreanText!), enabled: hasPausedSchedules));
                     break;
                 default:
                     items.Add(TrayHostMenuItem.Action(entry.ActionId!, AppText.T(entry.KoreanText!)));

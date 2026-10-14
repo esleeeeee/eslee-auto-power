@@ -25,6 +25,16 @@ public sealed class SqliteStore
         }.ToString();
     }
 
+    /// <summary>
+    /// Closes idle pooled connections of this database only (unlike
+    /// <see cref="SqliteConnection.ClearAllPools"/>, which also affects other databases in use).
+    /// </summary>
+    public void ReleasePooledConnections()
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        SqliteConnection.ClearPool(connection);
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);

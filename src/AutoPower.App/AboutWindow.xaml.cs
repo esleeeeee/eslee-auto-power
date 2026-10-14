@@ -3,12 +3,13 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
+using AutoPower.App.Controls;
 using AutoPower.Core;
 using AutoPower.Windows;
 
 namespace AutoPower.App;
 
-public partial class AboutWindow : Window
+public partial class AboutWindow : ThemedWindow
 {
     public AboutWindow()
     {
@@ -38,9 +39,9 @@ public partial class AboutWindow : Window
             { Status: UpdateCheckStatus.UpToDate } => AppText.T("최신 버전을 사용하고 있습니다."),
             _ => AppText.T("업데이트 확인에 실패했습니다. 네트워크 연결을 확인하세요.")
         };
-        UpdateStatusValue.Foreground = result?.Status == UpdateCheckStatus.UpdateAvailable
-            ? (System.Windows.Media.Brush)FindResource("AccentBrush")
-            : (System.Windows.Media.Brush)FindResource("MutedBrush");
+        UpdateStatusValue.SetResourceReference(
+            ForegroundProperty,
+            result?.Status == UpdateCheckStatus.UpdateAvailable ? "AccentTextBrush" : "TextPrimaryBrush");
     }
 
     private async void CheckUpdate_Click(object sender, RoutedEventArgs e)

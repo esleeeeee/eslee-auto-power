@@ -1,18 +1,22 @@
 using System.ComponentModel;
-using System.Diagnostics;
-using System.IO;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Threading;
+using AutoPower.App.Controls;
+using AutoPower.App.Services;
 using AutoPower.Core;
 using AutoPower.Windows;
 using MessageBox = AutoPower.App.LocalizedMessageBox;
 
 namespace AutoPower.App;
 
-public partial class MainWindow : Window
+public partial class MainWindow : ThemedWindow
 {
     private readonly MainViewModel _viewModel = new();
     private TrayService? _tray;
-    private bool _loadingSettings;
+    private readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromSeconds(30) };
+    private bool _suppressToggle;
     private bool _evaluatingSleepWakeTest;
     private bool _refreshingAfterActivation;
 
@@ -20,6 +24,18 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = _viewModel;
+        Navigation.ItemsSource = new[]
+        {
+            new NavItem(Glyphs.Calendar, AppText.T("예약")),
+            new NavItem(Glyphs.History, AppText.T("기록")),
+            new NavItem(Glyphs.Diagnostic, AppText.T("호환성"))
+        };
+        Navigation.SelectedIndex = 0;
+        VersionFooter.Text = AppText.F("버전 {0}", SettingsWindow.GetDisplayVersion());
+        HistorySearchBox.Tag = AppText.T("내용이나 구분으로 검색");
+        _clock.Tick += (_, _) => Tick();
+        _clock.Start();
+        PreviewKeyDown += MainWindow_PreviewKeyDown;
         Loaded += MainWindow_Loaded;
         Activated += MainWindow_Activated;
         Closing += MainWindow_Closing;
@@ -27,6 +43,8 @@ public partial class MainWindow : Window
 
     public bool AllowClose { get; set; }
     public string NextScheduleSummary => _viewModel.NextScheduleSummary;
+    public string TrayTooltip => _viewModel.TrayTooltip;
+    public bool HasPausedSchedules => _viewModel.HasPausedSchedules;
 
     public void AttachTray(TrayService tray) => _tray = tray;
 
@@ -45,9 +63,9 @@ public partial class MainWindow : Window
     {
         try
         {
-            await AppServices.Helper.RunAsync(["pause-all"]);
+            await AppServices.Coordinator.PauseAllAsync();
             _tray?.ShowBalloon("eslee Auto Power", "모든 미래 예약을 일시 중지했습니다.");
-            await _viewModel.RefreshAsync();
+            await RefreshAsync();
         }
         catch (Exception error)
         {
@@ -80,7 +98,6 @@ public partial class MainWindow : Window
         await RecoverResumeSignInAsync();
         await RetireRemovedPowerFeaturesAsync();
         await RefreshAsync();
-        RefreshCredentialUi();
         if (await AppServices.Store.GetSettingAsync("welcome-shown") is null)
         {
             var welcome = new WelcomeWindow { Owner = this };
@@ -88,7 +105,7 @@ public partial class MainWindow : Window
             await AppServices.Store.SetSettingAsync("welcome-shown", "1");
             if (showCompatibility)
             {
-                SelectPage(3, "호환성", "이 PC에서 실제로 사용할 수 있는 기능 진단");
+                Navigation.SelectedIndex = 2;
             }
         }
 
@@ -101,7 +118,7 @@ public partial class MainWindow : Window
         {
             e.Cancel = true;
             Hide();
-            _tray?.ShowBalloon("eslee Auto Power", "앱이 시스템 트레이에서 계속 실행됩니다.");
+            _ = ShowTrayHintOnceAsync();
         }
     }
 
@@ -126,23 +143,6 @@ public partial class MainWindow : Window
         {
             _refreshingAfterActivation = false;
         }
-    }
-
-    private void Reservations_Click(object sender, RoutedEventArgs e) => SelectPage(0, "예약", "통합 자동 시작 예약과 전원 동작");
-    private void History_Click(object sender, RoutedEventArgs e) => SelectPage(1, "기록", "완료·실패·건너뜀·놓침 및 복구 기록");
-    private void Settings_Click(object sender, RoutedEventArgs e)
-    {
-        RefreshCredentialUi();
-        SelectPage(2, "설정", "Windows 시작, 로그인 정보 및 진단 로그");
-    }
-    private void Compatibility_Click(object sender, RoutedEventArgs e) => SelectPage(3, "호환성", "이 PC에서 실제로 사용할 수 있는 기능 진단");
-    private void About_Click(object sender, RoutedEventArgs e) => new AboutWindow { Owner = this }.ShowDialog();
-
-    private void SelectPage(int index, string title, string subtitle)
-    {
-        Pages.SelectedIndex = index;
-        PageTitle.Text = AppText.T(title);
-        PageSubtitle.Text = AppText.T(subtitle);
     }
 
     private void New_Click(object sender, RoutedEventArgs e) => ShowNewSchedule();
@@ -241,7 +241,7 @@ public partial class MainWindow : Window
         await ShowEditorAsync(_viewModel.SelectedSchedule.Schedule);
     }
 
-    private async Task ShowEditorAsync(PowerSchedule? existing)
+    private async Task ShowEditorAsync(PowerSchedule? existing, bool duplicate = false)
     {
         PowerCapabilitySnapshot capability;
         IReadOnlyList<CompatibilityResult> compatibility;
@@ -258,7 +258,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var editor = new ScheduleEditorWindow(existing, capability, compatibility, schedules) { Owner = this };
+        var editor = new ScheduleEditorWindow(existing, capability, compatibility, schedules, duplicate) { Owner = this };
         if (editor.ShowDialog() != true || editor.ResultSchedule is null)
         {
             return;
@@ -271,11 +271,11 @@ public partial class MainWindow : Window
                 "로그인 정보 필요",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
-            Settings_Click(this, new RoutedEventArgs());
+            OpenSettings();
             return;
         }
 
-        if (existing is not null && ScheduleValidator.NeedsImminentWarning(existing, DateTime.Now))
+        if (existing is not null && !duplicate && ScheduleValidator.NeedsImminentWarning(existing, DateTime.Now))
         {
             var answer = MessageBox.Show(
                 "예약 실행이 임박했습니다. 이미 Windows 또는 시스템 전원 설정에 작업이 준비되었을 수 있습니다. 변경 사항을 적용하시겠습니까?",
@@ -449,165 +449,6 @@ public partial class MainWindow : Window
         {
             await AppServices.Store.ClearHistoryAsync();
             await RefreshAsync();
-        }
-    }
-
-    private void StartupCheck_Click(object sender, RoutedEventArgs e)
-    {
-        if (_loadingSettings)
-        {
-            return;
-        }
-
-        try
-        {
-            StartupManager.SetEnabled(StartupCheck.IsChecked == true, AppServices.Layout.AppPath);
-        }
-        catch (Exception error)
-        {
-            ShowError(error);
-        }
-    }
-
-    private void OpenLogs_Click(object sender, RoutedEventArgs e)
-    {
-        Directory.CreateDirectory(AppPaths.LogDirectory);
-        Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = false, ArgumentList = { AppPaths.LogDirectory } })?.Dispose();
-    }
-
-    private async void SaveCredential_Click(object sender, RoutedEventArgs e)
-    {
-        var userNameInput = CredentialUserNameInput.Text.Trim();
-        var password = CredentialPasswordInput.Password;
-        if (string.IsNullOrWhiteSpace(userNameInput) || string.IsNullOrWhiteSpace(password))
-        {
-            MessageBox.Show("Windows 사용자 이름과 계정 암호를 모두 입력하세요. PIN은 사용할 수 없습니다.",
-                "1회 자동 로그인", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var previous = AppServices.Credentials.Read();
-        string? transferPath = null;
-        try
-        {
-            var userName = WindowsCredentialIdentity.Normalize(userNameInput);
-            AppServices.Credentials.Save(userName, password);
-            transferPath = CredentialTransferFile.Create(userName, password);
-            await AppServices.Helper.RunAsync(["sync-credential", "--file", transferPath]);
-            transferPath = null;
-            RefreshCredentialUi();
-            MessageBox.Show(
-                "Windows 계정과 암호를 실제 로그온 API로 검증하고 보호 저장소에 등록했습니다.",
-                "로그인 검증 성공",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-        }
-        catch (Exception error)
-        {
-            try
-            {
-                if (previous is null)
-                {
-                    AppServices.Credentials.Delete();
-                }
-                else
-                {
-                    AppServices.Credentials.Save(previous.UserName, previous.Password);
-                }
-            }
-            catch (Exception rollbackError)
-            {
-                AppServices.Logger.Error("credential.user-copy-rollback-failed", rollbackError);
-            }
-
-            ShowError(error);
-        }
-        finally
-        {
-            CredentialTransferFile.DeleteIfPresent(transferPath);
-            CredentialPasswordInput.Clear();
-            RefreshCredentialUi();
-            await _viewModel.RefreshAsync();
-        }
-    }
-
-    private async void TestCredential_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            if (!AppServices.Credentials.Exists())
-            {
-                throw new InvalidOperationException("먼저 Windows 로그인 자격 증명을 저장하세요.");
-            }
-
-            await AppServices.Helper.RunAsync(["test-credential"]);
-            MessageBox.Show(
-                "저장된 Windows 계정과 암호로 실제 로그온 자격 증명 검증에 성공했습니다.",
-                "로그인 테스트 성공",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-        }
-        catch (Exception error)
-        {
-            ShowError(error);
-        }
-        finally
-        {
-            CredentialPasswordInput.Clear();
-            RefreshCredentialUi();
-            await _viewModel.RefreshAsync();
-        }
-    }
-
-    private async void RemoveCredential_Click(object sender, RoutedEventArgs e)
-    {
-        if (MessageBox.Show(
-                "앱이 보호 저장소에 등록한 Windows 로그인 정보를 제거하시겠습니까?",
-                "로그인 정보 제거",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Warning,
-                MessageBoxResult.No) != MessageBoxResult.Yes)
-        {
-            return;
-        }
-
-        try
-        {
-            await AppServices.Helper.RunAsync(["delete-credential"]);
-            AppServices.Credentials.Delete();
-            CredentialPasswordInput.Clear();
-            RefreshCredentialUi();
-            await _viewModel.RefreshAsync();
-        }
-        catch (Exception error)
-        {
-            ShowError(error);
-        }
-    }
-
-    private void RefreshCredentialUi()
-    {
-        try
-        {
-            var credential = AppServices.Credentials.Read();
-            if (credential is null)
-            {
-                CredentialStatusText.Text = AppText.T("등록된 Windows 로그인 정보가 없습니다.");
-                if (string.IsNullOrWhiteSpace(CredentialUserNameInput.Text))
-                {
-                    CredentialUserNameInput.Text = TaskSchedulerService.CurrentUserName();
-                }
-            }
-            else
-            {
-                CredentialStatusText.Text = AppText.T($"등록됨: {credential.UserName}");
-                CredentialUserNameInput.Text = credential.UserName;
-            }
-        }
-        catch (Exception error)
-        {
-            CredentialStatusText.Text = AppText.T("등록 상태를 확인하지 못했습니다.");
-            AppServices.Logger.Error("credential.status-read-failed", error);
         }
     }
 
@@ -936,11 +777,266 @@ public partial class MainWindow : Window
     private async Task RefreshAsync()
     {
         await _viewModel.RefreshAsync();
-        _loadingSettings = true;
-        StartupCheck.IsChecked = StartupManager.IsEnabled;
-        _loadingSettings = false;
+        _suppressToggle = false;
+        _tray?.UpdateStatus();
     }
 
-    private static void ShowError(Exception error) =>
-        MessageBox.Show(error.Message, "eslee Auto Power", MessageBoxButton.OK, MessageBoxImage.Error);
+    private void Tick()
+    {
+        _viewModel.Tick();
+        _tray?.UpdateStatus();
+    }
+
+    private static void ShowError(Exception error) => AppDialog.ShowError(null, error);
+
+    private async Task ShowTrayHintOnceAsync()
+    {
+        try
+        {
+            if (await AppServices.Store.GetSettingAsync("tray-hint-shown") is null)
+            {
+                _tray?.ShowBalloon("eslee Auto Power", "앱이 시스템 트레이에서 계속 실행됩니다.");
+                await AppServices.Store.SetSettingAsync("tray-hint-shown", "1");
+            }
+        }
+        catch (Exception error)
+        {
+            AppServices.Logger.Error("tray.hint-failed", error);
+        }
+    }
+
+    // ----- Navigation -----
+
+    private void Navigation_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var index = Navigation.SelectedIndex;
+        if (index < 0)
+        {
+            return;
+        }
+
+        SchedulesPage.Visibility = index == 0 ? Visibility.Visible : Visibility.Collapsed;
+        HistoryPage.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
+        CompatibilityPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void Settings_Click(object sender, RoutedEventArgs e) => OpenSettings();
+
+    private void OpenSettings()
+    {
+        var existing = System.Windows.Application.Current.Windows.OfType<SettingsWindow>().FirstOrDefault();
+        if (existing is not null)
+        {
+            existing.Activate();
+            return;
+        }
+
+        new SettingsWindow { Owner = this }.ShowDialog();
+    }
+
+    private void MainWindow_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.N && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            ShowNewSchedule();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.F5)
+        {
+            _ = RefreshAsync();
+            e.Handled = true;
+        }
+    }
+
+    // ----- Schedule list -----
+
+    private void ScheduleList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject source &&
+            ItemsControl.ContainerFromElement(ScheduleList, source) is ListBoxItem { DataContext: ScheduleRow row })
+        {
+            _ = ShowEditorAsync(row.Schedule);
+        }
+    }
+
+    private void ScheduleList_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Delete)
+        {
+            Delete_Click(sender, e);
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Enter && _viewModel.SelectedSchedule is { } row)
+        {
+            _ = ShowEditorAsync(row.Schedule);
+            e.Handled = true;
+        }
+    }
+
+    // Saved from Checked/Unchecked rather than Click so that a change made through
+    // UI Automation (screen readers) is stored as well. Rows are recreated on refresh;
+    // the binding then raises Checked with the stored value, which is ignored here.
+    private async void ScheduleToggle_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_suppressToggle || sender is not System.Windows.Controls.CheckBox { DataContext: ScheduleRow row } toggle)
+        {
+            return;
+        }
+
+        var enable = toggle.IsChecked == true;
+        if (enable == row.Schedule.IsEnabled)
+        {
+            return;
+        }
+
+        _suppressToggle = true;
+        try
+        {
+            await AppServices.Coordinator.SetEnabledAsync(row.Schedule.Id, enable);
+        }
+        catch (Exception error)
+        {
+            ShowError(error);
+        }
+        finally
+        {
+            await RefreshAsync();
+        }
+    }
+
+    private static ScheduleRow? RowOf(object sender) => (sender as FrameworkElement)?.DataContext as ScheduleRow;
+
+    private void SelectRow(object sender)
+    {
+        if (RowOf(sender) is { } row)
+        {
+            _viewModel.SelectedSchedule = row;
+        }
+    }
+
+    private void EditMenu_Click(object sender, RoutedEventArgs e)
+    {
+        SelectRow(sender);
+        Edit_Click(sender, e);
+    }
+
+    private void DuplicateMenu_Click(object sender, RoutedEventArgs e)
+    {
+        SelectRow(sender);
+        Duplicate_Click(sender, e);
+    }
+
+    private void ToggleMenu_Click(object sender, RoutedEventArgs e)
+    {
+        SelectRow(sender);
+        Toggle_Click(sender, e);
+    }
+
+    private void DeleteMenu_Click(object sender, RoutedEventArgs e)
+    {
+        SelectRow(sender);
+        Delete_Click(sender, e);
+    }
+
+    private void ScheduleHistoryMenu_Click(object sender, RoutedEventArgs e)
+    {
+        SelectRow(sender);
+        ScheduleHistory_Click(sender, e);
+    }
+
+    private async void Duplicate_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel.SelectedSchedule is { } row)
+        {
+            await ShowEditorAsync(row.Schedule, duplicate: true);
+        }
+    }
+
+    private void ScheduleHistory_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel.SelectedSchedule is not { } row)
+        {
+            return;
+        }
+
+        _viewModel.HistoryScheduleFilter = row;
+        Navigation.SelectedIndex = 1;
+    }
+
+    // ----- More menu -----
+
+    private void More_Click(object sender, RoutedEventArgs e)
+    {
+        PauseAllMenu.IsEnabled = _viewModel.HasActiveSchedules;
+        ResumeAllMenu.IsEnabled = _viewModel.HasPausedSchedules;
+        MoreMenu.PlacementTarget = MoreButton;
+        MoreMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        MoreMenu.IsOpen = true;
+    }
+
+    private async void PauseAll_Click(object sender, RoutedEventArgs e) => await PauseAllAsync();
+
+    private async void ResumeAll_Click(object sender, RoutedEventArgs e) => await ResumeAllAsync();
+
+    public async Task ResumeAllAsync()
+    {
+        try
+        {
+            await AppServices.Coordinator.ResumeAllAsync();
+            _tray?.ShowBalloon("eslee Auto Power", "꺼 둔 미래 예약을 모두 다시 켰습니다.");
+        }
+        catch (Exception error)
+        {
+            ShowError(error);
+        }
+        finally
+        {
+            await RefreshAsync();
+        }
+    }
+
+    private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshAsync();
+
+    // ----- Attention banner -----
+
+    private async void AttentionHistory_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel.HistoryScheduleFilter = null;
+        FilterAll.IsChecked = true;
+        Navigation.SelectedIndex = 1;
+        await AcknowledgeAttentionAsync();
+    }
+
+    private async void DismissAttention_Click(object sender, RoutedEventArgs e) => await AcknowledgeAttentionAsync();
+
+    private async Task AcknowledgeAttentionAsync()
+    {
+        try
+        {
+            await _viewModel.AcknowledgeAttentionAsync();
+        }
+        catch (Exception error)
+        {
+            AppServices.Logger.Error("attention.acknowledge-failed", error);
+        }
+    }
+
+    // ----- History page -----
+
+    private void HistoryFilter_Checked(object sender, RoutedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.RadioButton { Tag: HistoryResultFilter filter })
+        {
+            _viewModel.HistoryResultFilter = filter;
+        }
+    }
+
+    private void ClearHistoryScheduleFilter_Click(object sender, RoutedEventArgs e) => _viewModel.HistoryScheduleFilter = null;
 }
+
+/// <summary>Navigation pane entry; <see cref="ToString"/> gives screen readers its name.</summary>
+public sealed record NavItem(string Glyph, string Text)
+{
+    public override string ToString() => Text;
+}
+

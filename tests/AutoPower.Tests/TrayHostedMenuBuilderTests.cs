@@ -10,23 +10,38 @@ public sealed class TrayHostedMenuBuilderTests
     {
         var items = TrayHostedMenuBuilder.Build(quickShutdownBusy: false, nextScheduleSummary: "내일 오전 7:00");
 
-        Assert.HasCount(TrayMenuLayout.Entries.Count, items);
+        // Protocol v1 has no submenus: the extra quick schedules follow, one separator per action group.
+        Assert.HasCount(TrayMenuLayout.Entries.Count + 3, items);
         CollectionAssert.AreEqual(
             new string?[]
             {
                 TrayMenuActionIds.QuickShutdownOneHour,
                 TrayMenuActionIds.QuickShutdownTwoHours,
                 null,
+                "quick-shutdown-30m",
+                "quick-shutdown-3h",
+                null,
+                "quick-hibernate-30m",
+                "quick-hibernate-1h",
+                "quick-hibernate-2h",
+                "quick-hibernate-3h",
+                null,
+                "quick-sleep-30m",
+                "quick-sleep-1h",
+                "quick-sleep-2h",
+                "quick-sleep-3h",
+                null,
                 TrayMenuActionIds.NextSchedule,
                 null,
                 TrayMenuActionIds.OpenApp,
                 TrayMenuActionIds.NewSchedule,
                 TrayMenuActionIds.PauseAll,
+                TrayMenuActionIds.ResumeAll,
                 null,
                 TrayMenuActionIds.ExitApp,
             },
             items.Select(item => item.Id).ToArray());
-        Assert.AreEqual(3, items.Count(item => item.IsSeparator));
+        Assert.AreEqual(6, items.Count(item => item.IsSeparator));
     }
 
     [TestMethod]
