@@ -223,6 +223,28 @@ public sealed class ScheduleSeriesCoordinatorTests
     private static PowerSchedule Disabled(PowerSchedule schedule) =>
         schedule with { IsEnabled = false, Status = ScheduleStatus.Disabled };
 
+    [TestMethod]
+    public async Task TurningOffAndOnARecurringScheduleSavesThroughTheHelper()
+    {
+        await using var database = await SqliteStoreTests.TestDatabase.CreateAsync();
+        var helper = new RecordingHelper();
+        var coordinator = new ScheduleCoordinator(database.Store, helper, () => Now);
+        var start = Now.Date.AddDays(7).AddHours(3);
+        var schedule = PowerSchedule.Create(start, PowerActionType.Sleep, name: "검증용", recurrence: RecurrenceRule.CreateDaily(start.TimeOfDay));
+        Assert.IsTrue((await coordinator.SaveAsync(schedule)).IsValid);
+
+        await coordinator.SetEnabledAsync(schedule.Id, false);
+        var off = await database.Store.GetScheduleAsync(schedule.Id);
+        await coordinator.SetEnabledAsync(schedule.Id, true);
+        var on = await database.Store.GetScheduleAsync(schedule.Id);
+
+        Assert.IsFalse(off!.IsEnabled);
+        Assert.AreEqual(ScheduleStatus.Disabled, off.Status);
+        Assert.IsTrue(on!.IsEnabled);
+        Assert.AreEqual(start, on.ScheduledLocalDateTime);
+        Assert.HasCount(3, helper.Calls);
+    }
+
     private sealed class RecordingHelper : IPrivilegedHelperClient
     {
         public bool Fail { get; init; }

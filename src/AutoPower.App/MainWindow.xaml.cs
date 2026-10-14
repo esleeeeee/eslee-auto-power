@@ -880,13 +880,26 @@ public partial class MainWindow : ThemedWindow
     // the binding then raises Checked with the stored value, which is ignored here.
     private async void ScheduleToggle_Changed(object sender, RoutedEventArgs e)
     {
-        if (_suppressToggle || sender is not System.Windows.Controls.CheckBox { DataContext: ScheduleRow row } toggle)
+        if (_suppressToggle)
         {
+            return;
+        }
+
+        if (sender is not System.Windows.Controls.CheckBox { DataContext: ScheduleRow row } toggle)
+        {
+            // A toggle from a list item that a refresh has already replaced.
+            AppServices.Logger.Warning("schedule.toggle-detached", (sender as FrameworkElement)?.DataContext?.GetType().Name ?? "null");
             return;
         }
 
         var enable = toggle.IsChecked == true;
         if (enable == row.Schedule.IsEnabled)
+        {
+            return;
+        }
+
+        AppServices.Logger.Information("schedule.toggle-requested", $"schedule={row.Schedule.Id:D};enable={enable}");
+        if (AppServices.CaptureMode)
         {
             return;
         }

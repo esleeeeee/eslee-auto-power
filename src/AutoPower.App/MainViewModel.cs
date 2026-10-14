@@ -53,6 +53,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             OnPropertyChanged();
             OnPropertyChanged(nameof(HasSelectedSchedule));
             OnPropertyChanged(nameof(SelectedRemainingText));
+            OnPropertyChanged(nameof(SelectedStatusText));
             RefreshSelectedScheduleHistory();
         }
     }
@@ -99,6 +100,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string SelectedRemainingText => SelectedSchedule is { } row && row.Schedule.IsEnabled
         ? UiText.Remaining(row.Schedule.ScheduledLocalDateTime, _now)
         : AppText.T("꺼져 있음");
+
+    /// <summary>"켜짐 · 2시간 남음" for an active schedule, "꺼짐" for a paused one.</summary>
+    public string SelectedStatusText => SelectedSchedule is { } row
+        ? row.Schedule.IsEnabled ? $"{row.EnabledText} · {SelectedRemainingText}" : row.EnabledText
+        : string.Empty;
 
     /// <summary>Short text for the tray icon tooltip (Windows limits it to 127 characters).</summary>
     public string TrayTooltip
@@ -177,6 +183,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(NextDetailText));
         OnPropertyChanged(nameof(NextScheduleSummary));
         OnPropertyChanged(nameof(SelectedRemainingText));
+        OnPropertyChanged(nameof(SelectedStatusText));
         OnPropertyChanged(nameof(TrayTooltip));
     }
 

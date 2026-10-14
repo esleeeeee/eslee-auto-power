@@ -19,8 +19,11 @@ public static class AppDialog
         MessageDialog.Show(owner ?? ActiveWindow(), Translate(heading), AppText.T(message), DialogKind.Error, AppText.T("확인"));
 
     /// <summary>Shows an exception message (Korean source text is translated).</summary>
-    public static void ShowError(Window? owner, Exception error) =>
+    public static void ShowError(Window? owner, Exception error)
+    {
+        AppServices.Logger.Error("ui.error-shown", error);
         Error(owner, error.Message, "eslee Auto Power");
+    }
 
     /// <summary>Two-button question; true when the user chose the primary button.</summary>
     public static bool Confirm(

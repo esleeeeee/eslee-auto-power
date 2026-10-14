@@ -443,11 +443,8 @@
 
                                     <Border Grid.Row="3" Style="{StaticResource RowDivider}" />
                                     <TextBlock Grid.Row="3" Text="상태" Style="{StaticResource DetailLabel}" />
-                                    <TextBlock Grid.Row="3" Grid.Column="1" Style="{StaticResource DetailValue}">
-                                        <Run Text="{Binding EnabledText, Mode=OneWay}" />
-                                        <Run Text=" · " />
-                                        <Run Text="{Binding DataContext.SelectedRemainingText, Mode=OneWay, RelativeSource={RelativeSource AncestorType=Window}}" />
-                                    </TextBlock>
+                                    <TextBlock Grid.Row="3" Grid.Column="1" Style="{StaticResource DetailValue}"
+                                               Text="{Binding DataContext.SelectedStatusText, RelativeSource={RelativeSource AncestorType=Window}}" />
 
                                     <Border Grid.Row="4" Style="{StaticResource RowDivider}"
                                             Visibility="{Binding IsWake, Converter={x:Static controls:Converters.BoolToVisibility}}" />

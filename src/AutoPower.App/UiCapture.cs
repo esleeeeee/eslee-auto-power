@@ -49,6 +49,15 @@ internal static class UiCapture
         await Task.Delay(400);
         Save(main, Path.Combine(output, $"main-compatibility-{suffix}.png"));
         main.SelectPageForCapture(0);
+        ToggleFirstScheduleThroughAutomation(main);
+        if (int.TryParse(Environment.GetEnvironmentVariable("ESLEE_AUTOPOWER_CAPTURE_HOLD"), out var holdSeconds) && holdSeconds > 0)
+        {
+            // Keeps the window open (refreshed like after a save) so external UI Automation can be tried.
+            await main.RefreshFromTrayAsync();
+            main.Left = 100;
+            main.Top = 100;
+            await Task.Delay(TimeSpan.FromSeconds(holdSeconds));
+        }
 
         var schedules = await AppServices.Store.GetAllSchedulesAsync();
         var capability = PowerCapabilityDetector.Detect();
@@ -68,6 +77,40 @@ internal static class UiCapture
         main.AllowClose = true;
         main.Close();
         app.Shutdown(0);
+    }
+
+    /// <summary>Exercises the list toggle the way a screen reader does (UI Automation Toggle pattern).</summary>
+    private static void ToggleFirstScheduleThroughAutomation(MainWindow main)
+    {
+        var toggle = FindDescendant<System.Windows.Controls.CheckBox>(main);
+        if (toggle is null)
+        {
+            AppServices.Logger.Warning("capture.toggle-missing", "no schedule toggle found");
+            return;
+        }
+
+        var peer = new System.Windows.Automation.Peers.CheckBoxAutomationPeer(toggle);
+        ((System.Windows.Automation.Provider.IToggleProvider)peer).Toggle();
+        AppServices.Logger.Information("capture.toggle-invoked", $"isChecked={toggle.IsChecked}");
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                return match;
+            }
+
+            if (FindDescendant<T>(child) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
     }
 
     private static async Task CaptureAsync(Window window, string output, string name, bool closeWithoutDecision = false)
