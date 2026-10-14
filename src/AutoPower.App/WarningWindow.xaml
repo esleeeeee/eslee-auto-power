@@ -3,7 +3,7 @@
                        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                        xmlns:controls="clr-namespace:AutoPower.App.Controls"
                        Title="예약 실행 전 확인"
-                       Width="600"
+                       Width="760"
                        SizeToContent="Height"
                        ResizeMode="NoResize"
                        WindowStartupLocation="CenterScreen"
@@ -43,12 +43,13 @@
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Button x:Name="NowButton" Style="{DynamicResource AccentButton}" Click="Now_Click" />
-                <Button x:Name="SnoozeButton" Grid.Column="1" HorizontalAlignment="Left" Margin="8,0,0,0" Click="Snooze_Click"
+                <Button x:Name="SnoozeButton" Grid.Column="1" Margin="8,0,0,0" Click="Snooze_Click"
                         AutomationProperties.Name="미루기">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{x:Static controls:Glyphs.Snooze}" FontFamily="{x:Static controls:ThemeFonts.Icons}" FontSize="14"
@@ -65,8 +66,8 @@
                         </ContextMenu>
                     </Button.ContextMenu>
                 </Button>
-                <Button x:Name="SkipButton" Grid.Column="2" Content="이번 예약 건너뛰기" Margin="8,0,0,0" Click="Skip_Click" />
-                <Button x:Name="KeepButton" Grid.Column="3" Margin="8,0,0,0" IsDefault="True" Click="Keep_Click" />
+                <Button x:Name="SkipButton" Grid.Column="3" Content="이번 예약 건너뛰기" Margin="8,0,0,0" Click="Skip_Click" />
+                <Button x:Name="KeepButton" Grid.Column="4" Margin="8,0,0,0" IsDefault="True" Click="Keep_Click" />
             </Grid>
         </Border>
     </Grid>

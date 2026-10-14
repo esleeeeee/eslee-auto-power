@@ -260,7 +260,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
         await RefreshAttentionAsync(historyItems);
 
-        StatusMessage = Schedules.Count == 0 ? "미래 예약이 없습니다." : $"미래 예약 {Schedules.Count}개";
+        StatusMessage = Schedules.Count == 0 ? "미래 예약이 없습니다." : AppText.F("미래 예약 {0}개", Schedules.Count);
         OnPropertyChanged(nameof(HasSchedules));
         OnPropertyChanged(nameof(NextSchedule));
         OnPropertyChanged(nameof(HasNextSchedule));

@@ -124,7 +124,7 @@ public partial class MainWindow : ThemedWindow
 
     private async void MainWindow_Activated(object? sender, EventArgs e)
     {
-        if (!IsLoaded || _refreshingAfterActivation)
+        if (!IsLoaded || _refreshingAfterActivation || AppServices.CaptureMode)
         {
             return;
         }
@@ -819,6 +819,8 @@ public partial class MainWindow : ThemedWindow
         HistoryPage.Visibility = index == 1 ? Visibility.Visible : Visibility.Collapsed;
         CompatibilityPage.Visibility = index == 2 ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    internal void SelectPageForCapture(int index) => Navigation.SelectedIndex = index;
 
     private void Settings_Click(object sender, RoutedEventArgs e) => OpenSettings();
 

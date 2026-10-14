@@ -15,6 +15,7 @@ public partial class WarningWindow : ThemedWindow
     private readonly DispatcherTimer _timer;
     private int _seconds = 30;
     private bool _decisionMade;
+    private bool _closingForCapture;
 
     public WarningWindow(PowerSchedule schedule, PowerSchedule? nextWake = null)
     {
@@ -116,6 +117,14 @@ public partial class WarningWindow : ThemedWindow
         }
     }
 
+    /// <summary>Debug screenshot mode: closes without a decision and without ending the app.</summary>
+    internal void CloseForCapture()
+    {
+        _decisionMade = true;
+        _closingForCapture = true;
+        Close();
+    }
+
     private void Snooze_Click(object sender, RoutedEventArgs e)
     {
         SnoozeMenu.PlacementTarget = SnoozeButton;
@@ -201,7 +210,10 @@ public partial class WarningWindow : ThemedWindow
             KeepOriginalAsync().GetAwaiter().GetResult();
         }
 
-        Dispatcher.BeginInvoke(() => System.Windows.Application.Current.Shutdown());
+        if (!_closingForCapture)
+        {
+            Dispatcher.BeginInvoke(() => System.Windows.Application.Current.Shutdown());
+        }
     }
 
     private async Task KeepOriginalAsync()

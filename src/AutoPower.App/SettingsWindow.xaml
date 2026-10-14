@@ -83,7 +83,7 @@
                 </Border>
 
                 <!-- ===== Behavior ===== -->
-                <TextBlock Text="동작" Style="{DynamicResource SectionHeaderText}" />
+                <TextBlock Text="앱 동작" Style="{DynamicResource SectionHeaderText}" />
                 <Border Style="{DynamicResource Card}" Padding="0" Margin="0,0,0,20">
                     <StackPanel>
                         <Grid Style="{StaticResource RowGrid}">

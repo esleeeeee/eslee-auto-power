@@ -23,6 +23,20 @@ internal static class WpfLocalizer
             typeof(Window),
             FrameworkElement.LoadedEvent,
             new RoutedEventHandler(OnWindowLoaded));
+        // Elements created after the window loaded (data templates, list items, context
+        // menus and popups) raise their own Loaded event; translate those one by one.
+        EventManager.RegisterClassHandler(
+            typeof(FrameworkElement),
+            FrameworkElement.LoadedEvent,
+            new RoutedEventHandler(OnElementLoaded));
+    }
+
+    private static void OnElementLoaded(object sender, RoutedEventArgs e)
+    {
+        if (AppText.IsEnglish && sender is FrameworkElement element and not Window)
+        {
+            LocalizeObject(element);
+        }
     }
 
     private static void OnWindowLoaded(object sender, RoutedEventArgs e)
@@ -73,8 +87,11 @@ internal static class WpfLocalizer
             window.SetCurrentValue(Window.TitleProperty, AppText.T(window.Title));
         }
 
+        // A TextBlock made of bound Runs must keep its inlines; setting Text would replace them
+        // with a frozen snapshot of the current values.
         if (item is TextBlock textBlock &&
-            !BindingOperations.IsDataBound(textBlock, TextBlock.TextProperty))
+            !BindingOperations.IsDataBound(textBlock, TextBlock.TextProperty) &&
+            !textBlock.Inlines.OfType<System.Windows.Documents.Run>().Any(run => BindingOperations.IsDataBound(run, System.Windows.Documents.Run.TextProperty)))
         {
             textBlock.SetCurrentValue(TextBlock.TextProperty, AppText.T(textBlock.Text));
         }
@@ -99,6 +116,20 @@ internal static class WpfLocalizer
         if (item is FrameworkElement element && element.ToolTip is string tooltip)
         {
             element.SetCurrentValue(FrameworkElement.ToolTipProperty, AppText.T(tooltip));
+        }
+
+        // Search box placeholders are stored in Tag.
+        if (item is System.Windows.Controls.TextBox { Tag: string placeholder } textBox &&
+            !BindingOperations.IsDataBound(textBox, FrameworkElement.TagProperty))
+        {
+            textBox.SetCurrentValue(FrameworkElement.TagProperty, AppText.T(placeholder));
+        }
+
+        if (!BindingOperations.IsDataBound(item, System.Windows.Automation.AutomationProperties.NameProperty) &&
+            item.ReadLocalValue(System.Windows.Automation.AutomationProperties.NameProperty) is string automationName &&
+            automationName.Length > 0)
+        {
+            item.SetCurrentValue(System.Windows.Automation.AutomationProperties.NameProperty, AppText.T(automationName));
         }
 
         if (item is System.Windows.Controls.DataGrid dataGrid)

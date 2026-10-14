@@ -31,6 +31,16 @@ public partial class App : System.Windows.Application
         ThemeService.Install(this, AppThemePreference.System);
         try
         {
+#if DEBUG
+            if (UiCapture.IsRequested(e.Args))
+            {
+                AppServices.CaptureMode = true;
+                AppText.SetLanguage(e.Args.Length >= 4 && e.Args[3] == "en" ? AppLanguagePreference.English : AppLanguagePreference.Korean);
+                AppText.ApplyCulture();
+                await UiCapture.RunAsync(this, e.Args);
+                return;
+            }
+#endif
             await AppServices.InitializeAsync();
             try
             {
@@ -261,6 +271,9 @@ public partial class App : System.Windows.Application
 
 internal static class AppServices
 {
+    /// <summary>Debug screenshot mode: skips background reconciliation triggered by window activation.</summary>
+    public static bool CaptureMode { get; set; }
+
     public static TechnicalLogger Logger { get; } = new();
     public static SqliteStore Store { get; } = new(AppPaths.DatabasePath);
     public static InstallationLayout Layout { get; } = InstallationLayout.FromBaseDirectory(AppContext.BaseDirectory);
