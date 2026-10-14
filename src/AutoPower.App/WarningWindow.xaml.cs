@@ -106,7 +106,7 @@ public partial class WarningWindow : ThemedWindow
             {
                 try
                 {
-                    await AppServices.Coordinator.SetEnabledAsync(_schedule.Id, true);
+                    await AppServices.Coordinator.RestoreSkippedAsync(_schedule.Id);
                 }
                 catch (Exception rollbackError)
                 {

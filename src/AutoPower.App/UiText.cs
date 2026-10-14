@@ -88,6 +88,8 @@ internal static class UiText
         "ScheduleSkipped" => AppText.T("예약 건너뜀"),
         "ScheduleMissed" => AppText.T("예약 놓침"),
         "Snoozed" => AppText.T("예약 미룸"),
+        "ScheduleRestored" => AppText.T("건너뛴 예약 다시 켬"),
+        "ScheduleResumeConflict" => AppText.T("다시 켜기 충돌"),
         "PauseAll" or "SchedulesPaused" => AppText.T("모두 일시 중지"),
         "ResumeAll" or "SchedulesResumed" => AppText.T("모두 다시 켜기"),
         "RecurrenceAdvanced" => AppText.T("다음 반복 준비"),

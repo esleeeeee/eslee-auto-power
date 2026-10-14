@@ -518,6 +518,8 @@ public static class AppText
         ("빠른 완전 종료 메뉴에 시간 값이 없습니다.", "The quick shutdown menu item has no delay."),
         ("미래 예약 {0}개", "Future schedules: {0}"),
         ("앱 동작", "Behavior"),
+        ("건너뛴 예약 다시 켬", "Skipped schedule restored"),
+        ("다시 켜기 충돌", "Resume conflict"),
         ("건너뛴 예약만 다시 켤 수 있습니다. 예약 상태가 이미 바뀌었습니다.", "Only a skipped schedule can be turned back on. The schedule's state has already changed."),
         ("예약 시각이 지났거나 너무 가까워 건너뛴 예약을 다시 켤 수 없습니다.", "The skipped schedule cannot be turned back on because its time has passed or is too close."),
         ("건너뛴 예약을 다시 켰습니다.", "The skipped schedule was turned back on."),

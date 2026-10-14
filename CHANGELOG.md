@@ -31,6 +31,9 @@
 - 예약 편집·스누즈와 전원 작업 실행이 겹칠 때 바뀐 시각으로 이전 작업이 실행될 수 있던 경쟁 상태(실행 시작 시 예약 시각 일치 확인), 실행 중인 예약을 저장으로 덮어쓰지 못하게 보호
 - 건너뛰기·모두 일시 중지가 DB 상태를 먼저 조건부로 바꾼 뒤 작업을 지우도록 순서를 바꿔, 진행 중인 완전 종료의 대체 작업이 사라지지 않게 함
 - 테스트가 서로의 SQLite 연결 풀을 비워 가끔 실패하던 문제
+- 완전 종료 경고에서 '자동 시작 유지'를 골랐다가 준비에 실패하면 건너뛴 완전 종료가 복구되지 않던 문제(건너뛴 예약을 조건부로 되돌리는 도우미 명령 추가)
+- 실행이 시작된 예약을 삭제하면 완전 종료 대체 작업이 지워질 수 있던 문제(실행 중인 예약은 삭제 거부)
+- 놓친 예약 정리가 막 실행을 시작한 예약을 덮어쓸 수 있던 경쟁 상태(조건부 상태 전환 사용)
 
 ## 2.0.0 - English summary
 
@@ -63,6 +66,9 @@
 - A race where an edit or snooze overlapping the power task could let the old task run at the changed time; in-flight schedules can no longer be overwritten by a save
 - Skip and pause-all now change the database conditionally before removing tasks, so an in-progress shutdown keeps its fallback task
 - Tests that cleared every SQLite connection pool and occasionally broke each other
+- Choosing "keep wake" in the shutdown warning could lose the skipped shutdown if preparation failed; a helper command now restores a skipped schedule conditionally
+- Deleting a schedule whose run had started could remove the shutdown fallback task; in-flight schedules can no longer be deleted
+- Missed-run cleanup could overwrite a schedule that had just started running; it now uses a conditional transition
 
 ## 1.0.7 - 2026-08-10
 
