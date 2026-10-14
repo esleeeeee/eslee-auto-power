@@ -49,7 +49,12 @@ public sealed class SqliteStore
                 OneTimeAutoLogonEnabled INTEGER NOT NULL,
                 CreatedAtUtc TEXT NOT NULL,
                 UpdatedAtUtc TEXT NOT NULL,
-                Status INTEGER NOT NULL
+                Status INTEGER NOT NULL,
+                Name TEXT NULL,
+                RecurrenceKind INTEGER NOT NULL DEFAULT 0,
+                RecurrenceDays INTEGER NOT NULL DEFAULT 0,
+                RecurrenceTimeTicks INTEGER NULL,
+                SeriesId TEXT NULL
             );
 
             CREATE TABLE IF NOT EXISTS FollowUpPrograms(
@@ -101,74 +106,104 @@ public sealed class SqliteStore
             );
             """;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        await EnsureColumnAsync(connection, "FollowUpPrograms", "RunElevated",
+
+        // Column migrations run in one write transaction so that the app and the helper can initialize the
+        // same database concurrently without racing on ALTER TABLE.
+        await using var transaction = connection.BeginTransaction(deferred: false);
+        await EnsureColumnAsync(connection, transaction, "FollowUpPrograms", "RunElevated",
             "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
-        await using var schema = connection.CreateCommand();
-        schema.CommandText = "UPDATE SchemaInfo SET Version=2;";
-        await schema.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "Schedules", "Name",
+            "TEXT NULL", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "Schedules", "RecurrenceKind",
+            "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "Schedules", "RecurrenceDays",
+            "INTEGER NOT NULL DEFAULT 0", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "Schedules", "RecurrenceTimeTicks",
+            "INTEGER NULL", cancellationToken).ConfigureAwait(false);
+        await EnsureColumnAsync(connection, transaction, "Schedules", "SeriesId",
+            "TEXT NULL", cancellationToken).ConfigureAwait(false);
+        await using (var schema = connection.CreateCommand())
+        {
+            schema.Transaction = transaction;
+            schema.CommandText = """
+                CREATE INDEX IF NOT EXISTS IX_Schedules_SeriesId
+                    ON Schedules(SeriesId, ScheduledLocalDateTime);
+                UPDATE SchemaInfo SET Version=3;
+                """;
+            await schema.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Inserts or updates a schedule. An existing row that is in flight (PendingPowerTransition) is never
+    /// overwritten, and a finished row is never made Pending again (nor Disabled when it belongs to a recurring
+    /// series, which would break the one-live-occurrence rule); such a write throws
+    /// <see cref="ScheduleStateConflictException"/> and changes nothing.
+    /// </summary>
     public async Task SaveScheduleAsync(PowerSchedule schedule, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(schedule);
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = connection.BeginTransaction(deferred: false);
         try
         {
+            Guid? previousSeriesId = null;
+            await using (var previous = connection.CreateCommand())
+            {
+                previous.Transaction = transaction;
+                previous.CommandText = "SELECT SeriesId FROM Schedules WHERE Id=$id;";
+                previous.Parameters.AddWithValue("$id", schedule.Id.ToString("D"));
+                if (await previous.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string value)
+                {
+                    previousSeriesId = Guid.Parse(value);
+                }
+            }
+
+            int changed;
             await using (var command = connection.CreateCommand())
             {
                 command.Transaction = transaction;
                 command.CommandText = """
                     INSERT INTO Schedules(
                         Id, ScheduledLocalDateTime, ActionType, IsEnabled,
-                        OneTimeAutoLogonEnabled, CreatedAtUtc, UpdatedAtUtc, Status)
-                    VALUES($id, $time, $action, $enabled, $autologon, $created, $updated, $status)
+                        OneTimeAutoLogonEnabled, CreatedAtUtc, UpdatedAtUtc, Status,
+                        Name, RecurrenceKind, RecurrenceDays, RecurrenceTimeTicks, SeriesId)
+                    VALUES($id, $time, $action, $enabled, $autologon, $created, $updated, $status,
+                        $name, $recurrenceKind, $recurrenceDays, $recurrenceTime, $seriesId)
                     ON CONFLICT(Id) DO UPDATE SET
                         ScheduledLocalDateTime=excluded.ScheduledLocalDateTime,
                         ActionType=excluded.ActionType,
                         IsEnabled=excluded.IsEnabled,
                         OneTimeAutoLogonEnabled=excluded.OneTimeAutoLogonEnabled,
                         UpdatedAtUtc=excluded.UpdatedAtUtc,
-                        Status=excluded.Status;
+                        Status=excluded.Status,
+                        Name=excluded.Name,
+                        RecurrenceKind=excluded.RecurrenceKind,
+                        RecurrenceDays=excluded.RecurrenceDays,
+                        RecurrenceTimeTicks=excluded.RecurrenceTimeTicks,
+                        SeriesId=excluded.SeriesId
+                    WHERE Schedules.Status <> $inFlight
+                      AND NOT (Schedules.Status IN ($completed, $failed, $skipped, $missed, $resultUnknown)
+                               AND (excluded.Status = $pending
+                                    OR (excluded.Status = $disabled AND Schedules.SeriesId IS NOT NULL)));
+                    SELECT changes();
                     """;
-                command.Parameters.AddWithValue("$id", schedule.Id.ToString("D"));
-                command.Parameters.AddWithValue("$time", Local(schedule.ScheduledLocalDateTime));
-                command.Parameters.AddWithValue("$action", (int)schedule.ActionType);
-                command.Parameters.AddWithValue("$enabled", schedule.IsEnabled ? 1 : 0);
-                command.Parameters.AddWithValue("$autologon", schedule.OneTimeAutoLogonEnabled ? 1 : 0);
-                command.Parameters.AddWithValue("$created", Utc(schedule.CreatedAtUtc));
-                command.Parameters.AddWithValue("$updated", Utc(schedule.UpdatedAtUtc));
-                command.Parameters.AddWithValue("$status", (int)schedule.Status);
-                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                AddScheduleParameters(command, schedule);
+                AddStatusGuardParameters(command);
+                changed = Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
             }
 
-            await using (var delete = connection.CreateCommand())
+            if (changed != 1)
             {
-                delete.Transaction = transaction;
-                delete.CommandText = "DELETE FROM FollowUpPrograms WHERE ScheduleId=$scheduleId;";
-                delete.Parameters.AddWithValue("$scheduleId", schedule.Id.ToString("D"));
-                await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                throw new ScheduleStateConflictException("이미 실행이 시작됐거나 끝난 예약은 변경할 수 없습니다.");
             }
 
-            foreach (var program in schedule.FollowUpPrograms)
+            await ReplaceFollowUpProgramsAsync(connection, transaction, schedule, cancellationToken).ConfigureAwait(false);
+            if (previousSeriesId is Guid oldSeries && oldSeries != schedule.SeriesId)
             {
-                await using var insert = connection.CreateCommand();
-                insert.Transaction = transaction;
-                insert.CommandText = """
-                    INSERT INTO FollowUpPrograms(
-                        Id, ScheduleId, ExecutablePath, DelayAfterDesktopReadyMinutes,
-                        Arguments, WorkingDirectory, RunElevated, SortOrder)
-                    VALUES($id, $scheduleId, $path, $delay, $arguments, $workingDirectory, $runElevated, $sortOrder);
-                    """;
-                insert.Parameters.AddWithValue("$id", program.Id.ToString("D"));
-                insert.Parameters.AddWithValue("$scheduleId", schedule.Id.ToString("D"));
-                insert.Parameters.AddWithValue("$path", program.ExecutablePath);
-                insert.Parameters.AddWithValue("$delay", program.DelayAfterDesktopReadyMinutes);
-                insert.Parameters.AddWithValue("$arguments", (object?)program.Arguments ?? DBNull.Value);
-                insert.Parameters.AddWithValue("$workingDirectory", (object?)program.WorkingDirectory ?? DBNull.Value);
-                insert.Parameters.AddWithValue("$runElevated", program.RunElevated ? 1 : 0);
-                insert.Parameters.AddWithValue("$sortOrder", program.SortOrder);
-                await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                await EndSeriesAsync(connection, transaction, oldSeries, schedule.Id, cancellationToken).ConfigureAwait(false);
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -180,14 +215,160 @@ public sealed class SqliteStore
         }
     }
 
+    /// <summary>
+    /// Creates the next occurrence of the series that <paramref name="occurrenceId"/> belongs to, unless the
+    /// series already has a live (Pending or Disabled) row or a later occurrence. The check and the insert run
+    /// in one immediate write transaction, so concurrent callers (execute-power, wake handling,
+    /// startup-reconcile) create at most one row. Returns the new row, or null when nothing was created.
+    /// </summary>
+    public async Task<PowerSchedule?> TryAdvanceSeriesAsync(
+        Guid occurrenceId,
+        DateTime nowLocal,
+        DateTimeOffset? nowUtc = null,
+        CancellationToken cancellationToken = default)
+    {
+        var created = nowUtc ?? DateTimeOffset.UtcNow;
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = connection.BeginTransaction(deferred: false);
+        try
+        {
+            var source = (await ReadSchedulesAsync(
+                    connection, transaction, "WHERE s.Id=$id", ("$id", occurrenceId.ToString("D")), cancellationToken)
+                .ConfigureAwait(false)).SingleOrDefault();
+            if (source?.Recurrence is not { } rule ||
+                source.SeriesId is not Guid seriesId ||
+                !RecurrencePolicy.IsUsable(rule) ||
+                source.Status is ScheduleStatus.Pending or ScheduleStatus.Disabled)
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return null;
+            }
+
+            var series = await ReadSchedulesAsync(
+                connection, transaction, "WHERE s.SeriesId=$series", ("$series", seriesId.ToString("D")), cancellationToken)
+                .ConfigureAwait(false);
+            if (series.Any(item => item.Id != source.Id &&
+                                   (item.Status is ScheduleStatus.Pending or ScheduleStatus.Disabled ||
+                                    item.ScheduledLocalDateTime > source.ScheduledLocalDateTime)))
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return null;
+            }
+
+            var next = source.CreateNextOccurrence(
+                RecurrencePolicy.NextOccurrenceAfter(rule, source.ScheduledLocalDateTime, nowLocal),
+                created);
+            await using (var insert = connection.CreateCommand())
+            {
+                insert.Transaction = transaction;
+                insert.CommandText = """
+                    INSERT INTO Schedules(
+                        Id, ScheduledLocalDateTime, ActionType, IsEnabled,
+                        OneTimeAutoLogonEnabled, CreatedAtUtc, UpdatedAtUtc, Status,
+                        Name, RecurrenceKind, RecurrenceDays, RecurrenceTimeTicks, SeriesId)
+                    VALUES($id, $time, $action, $enabled, $autologon, $created, $updated, $status,
+                        $name, $recurrenceKind, $recurrenceDays, $recurrenceTime, $seriesId);
+                    """;
+                AddScheduleParameters(insert, next);
+                await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await ReplaceFollowUpProgramsAsync(connection, transaction, next, cancellationToken).ConfigureAwait(false);
+            await using (var history = connection.CreateCommand())
+            {
+                history.Transaction = transaction;
+                history.CommandText = """
+                    INSERT INTO ExecutionHistory(
+                        ScheduleId, EventType, Result, PlannedLocalTime,
+                        ActualTimeUtc, UserReadableMessage, ErrorCode)
+                    VALUES($scheduleId, $eventType, $result, $planned, $actual, $message, NULL);
+                    """;
+                history.Parameters.AddWithValue("$scheduleId", next.Id.ToString("D"));
+                history.Parameters.AddWithValue("$eventType", HistoryEventTypes.RecurrenceAdvanced);
+                history.Parameters.AddWithValue("$result", (int)ResultKind.Information);
+                history.Parameters.AddWithValue("$planned", Local(next.ScheduledLocalDateTime));
+                history.Parameters.AddWithValue("$actual", Utc(created));
+                history.Parameters.AddWithValue("$message", string.Create(CultureInfo.InvariantCulture,
+                    $"반복 예약의 다음 회차를 만들었습니다. 다음 시각: {next.ScheduledLocalDateTime:yyyy.MM.dd HH:mm}"));
+                await history.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return next;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Conditionally changes the enabled flag, status and optionally the time of one schedule. Returns false
+    /// without changing anything when the row is not in one of <paramref name="expectedStatuses"/> (or no longer
+    /// has <paramref name="expectedScheduledLocal"/>), which protects in-flight power transitions.
+    /// </summary>
+    public async Task<bool> TryTransitionScheduleAsync(
+        Guid id,
+        IReadOnlyCollection<ScheduleStatus> expectedStatuses,
+        bool isEnabled,
+        ScheduleStatus status,
+        DateTime? expectedScheduledLocal = null,
+        DateTime? newScheduledLocal = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(expectedStatuses);
+        if (expectedStatuses.Count == 0)
+        {
+            throw new ArgumentException("At least one expected status is required.", nameof(expectedStatuses));
+        }
+
+        var statusParameters = expectedStatuses.Select((_, index) => $"$expected{index}").ToArray();
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            UPDATE Schedules
+            SET IsEnabled=$enabled, Status=$status, UpdatedAtUtc=$updated
+                {(newScheduledLocal is null ? string.Empty : ", ScheduledLocalDateTime=$newTime")}
+            WHERE Id=$id
+              AND Status IN ({string.Join(",", statusParameters)})
+              {(expectedScheduledLocal is null ? string.Empty : "AND ScheduledLocalDateTime=$expectedTime")};
+            SELECT changes();
+            """;
+        command.Parameters.AddWithValue("$enabled", isEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$status", (int)status);
+        command.Parameters.AddWithValue("$updated", Utc(DateTimeOffset.UtcNow));
+        command.Parameters.AddWithValue("$id", id.ToString("D"));
+        for (var index = 0; index < expectedStatuses.Count; index++)
+        {
+            command.Parameters.AddWithValue(statusParameters[index], (int)expectedStatuses.ElementAt(index));
+        }
+
+        if (newScheduledLocal is DateTime newTime)
+        {
+            command.Parameters.AddWithValue("$newTime", Local(newTime));
+        }
+
+        if (expectedScheduledLocal is DateTime expectedTime)
+        {
+            command.Parameters.AddWithValue("$expectedTime", Local(expectedTime));
+        }
+
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) == 1;
+    }
+
     public async Task<PowerSchedule?> GetScheduleAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        var schedules = await ReadSchedulesAsync("WHERE s.Id=$id", id.ToString("D"), cancellationToken).ConfigureAwait(false);
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        var schedules = await ReadSchedulesAsync(connection, null, "WHERE s.Id=$id", ("$id", id.ToString("D")), cancellationToken).ConfigureAwait(false);
         return schedules.SingleOrDefault();
     }
 
-    public Task<IReadOnlyList<PowerSchedule>> GetAllSchedulesAsync(CancellationToken cancellationToken = default) =>
-        ReadSchedulesAsync(string.Empty, null, cancellationToken);
+    public async Task<IReadOnlyList<PowerSchedule>> GetAllSchedulesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        return await ReadSchedulesAsync(connection, null, string.Empty, null, cancellationToken).ConfigureAwait(false);
+    }
 
     public async Task<IReadOnlyList<PowerSchedule>> GetFutureSchedulesAsync(
         DateTime nowLocal,
@@ -200,13 +381,48 @@ public sealed class SqliteStore
             .ToArray();
     }
 
+    /// <summary>
+    /// Deletes a schedule. Deleting an occurrence of a recurring series ends that series in the same
+    /// transaction so that reconciliation never recreates it from an older occurrence.
+    /// </summary>
     public async Task DeleteScheduleAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-        await using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM Schedules WHERE Id=$id;";
-        command.Parameters.AddWithValue("$id", id.ToString("D"));
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = connection.BeginTransaction(deferred: false);
+        try
+        {
+            Guid? seriesId = null;
+            await using (var series = connection.CreateCommand())
+            {
+                series.Transaction = transaction;
+                series.CommandText = "SELECT SeriesId FROM Schedules WHERE Id=$id;";
+                series.Parameters.AddWithValue("$id", id.ToString("D"));
+                if (await series.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string value)
+                {
+                    seriesId = Guid.Parse(value);
+                }
+            }
+
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = "DELETE FROM Schedules WHERE Id=$id;";
+                command.Parameters.AddWithValue("$id", id.ToString("D"));
+                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            if (seriesId is Guid endedSeries)
+            {
+                await EndSeriesAsync(connection, transaction, endedSeries, id, cancellationToken).ConfigureAwait(false);
+            }
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            throw;
+        }
     }
 
     public async Task UpdateScheduleStateAsync(
@@ -292,13 +508,15 @@ public sealed class SqliteStore
                 update.CommandText = """
                     UPDATE Schedules
                     SET IsEnabled=0, Status=$newStatus, UpdatedAtUtc=$updated
-                    WHERE Id=$id AND ActionType=$action AND IsEnabled=1 AND Status=$pendingStatus;
+                    WHERE Id=$id AND ActionType=$action AND IsEnabled=1 AND Status=$pendingStatus
+                      AND ScheduledLocalDateTime=$time;
                     SELECT changes();
                     """;
                 update.Parameters.AddWithValue("$newStatus", (int)ScheduleStatus.PendingPowerTransition);
                 update.Parameters.AddWithValue("$updated", Utc(started));
                 update.Parameters.AddWithValue("$id", schedule.Id.ToString("D"));
                 update.Parameters.AddWithValue("$action", (int)schedule.ActionType);
+                update.Parameters.AddWithValue("$time", Local(schedule.ScheduledLocalDateTime));
                 update.Parameters.AddWithValue("$pendingStatus", (int)ScheduleStatus.Pending);
                 changed = Convert.ToInt32(await update.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
             }
@@ -717,46 +935,62 @@ public sealed class SqliteStore
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<IReadOnlyList<PowerSchedule>> ReadSchedulesAsync(
+    private static async Task<IReadOnlyList<PowerSchedule>> ReadSchedulesAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
         string whereClause,
-        string? id,
+        (string Name, string Value)? parameter,
         CancellationToken cancellationToken)
     {
         var rows = new List<(PowerSchedule Schedule, List<FollowUpProgram> Programs)>();
-        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using (var command = connection.CreateCommand())
         {
+            command.Transaction = transaction;
             command.CommandText = $"""
                 SELECT s.Id, s.ScheduledLocalDateTime, s.ActionType, s.IsEnabled,
-                       s.OneTimeAutoLogonEnabled, s.CreatedAtUtc, s.UpdatedAtUtc, s.Status
+                       s.OneTimeAutoLogonEnabled, s.CreatedAtUtc, s.UpdatedAtUtc, s.Status,
+                       s.Name, s.RecurrenceKind, s.RecurrenceDays, s.RecurrenceTimeTicks, s.SeriesId
                 FROM Schedules s
                 {whereClause}
                 ORDER BY s.ScheduledLocalDateTime, s.Id;
                 """;
-            if (id is not null)
+            if (parameter is var (name, value))
             {
-                command.Parameters.AddWithValue("$id", id);
+                command.Parameters.AddWithValue(name, value);
             }
 
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
+                var scheduled = ParseLocal(reader.GetString(1));
+                var recurrenceKind = (RecurrenceKind)reader.GetInt32(9);
                 rows.Add((new PowerSchedule(
                     Guid.Parse(reader.GetString(0)),
-                    ParseLocal(reader.GetString(1)),
+                    scheduled,
                     (PowerActionType)reader.GetInt32(2),
                     reader.GetInt32(3) != 0,
                     reader.GetInt32(4) != 0,
                     ParseUtc(reader.GetString(5)),
                     ParseUtc(reader.GetString(6)),
                     (ScheduleStatus)reader.GetInt32(7),
-                    []), []));
+                    [])
+                {
+                    Name = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    Recurrence = recurrenceKind == RecurrenceKind.None
+                        ? null
+                        : new RecurrenceRule(
+                            recurrenceKind,
+                            (RecurrenceDays)reader.GetInt32(10),
+                            reader.IsDBNull(11) ? scheduled.TimeOfDay : TimeSpan.FromTicks(reader.GetInt64(11))),
+                    SeriesId = reader.IsDBNull(12) ? null : Guid.Parse(reader.GetString(12))
+                }, []));
             }
         }
 
         foreach (var row in rows)
         {
             await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
             command.CommandText = """
                 SELECT Id, ExecutablePath, DelayAfterDesktopReadyMinutes,
                        Arguments, WorkingDirectory, RunElevated, SortOrder
@@ -783,6 +1017,91 @@ public sealed class SqliteStore
         return rows.Select(row => row.Schedule with { FollowUpPrograms = row.Programs }).ToArray();
     }
 
+    private static void AddScheduleParameters(SqliteCommand command, PowerSchedule schedule)
+    {
+        command.Parameters.AddWithValue("$id", schedule.Id.ToString("D"));
+        command.Parameters.AddWithValue("$time", Local(schedule.ScheduledLocalDateTime));
+        command.Parameters.AddWithValue("$action", (int)schedule.ActionType);
+        command.Parameters.AddWithValue("$enabled", schedule.IsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$autologon", schedule.OneTimeAutoLogonEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$created", Utc(schedule.CreatedAtUtc));
+        command.Parameters.AddWithValue("$updated", Utc(schedule.UpdatedAtUtc));
+        command.Parameters.AddWithValue("$status", (int)schedule.Status);
+        command.Parameters.AddWithValue("$name", (object?)schedule.Name ?? DBNull.Value);
+        command.Parameters.AddWithValue("$recurrenceKind", (int)(schedule.Recurrence?.Kind ?? RecurrenceKind.None));
+        command.Parameters.AddWithValue("$recurrenceDays", (int)(schedule.Recurrence?.Days ?? RecurrenceDays.None));
+        command.Parameters.AddWithValue("$recurrenceTime", schedule.Recurrence is null ? DBNull.Value : schedule.Recurrence.TimeOfDay.Ticks);
+        command.Parameters.AddWithValue("$seriesId", schedule.SeriesId is null ? DBNull.Value : schedule.SeriesId.Value.ToString("D"));
+    }
+
+    private static void AddStatusGuardParameters(SqliteCommand command)
+    {
+        command.Parameters.AddWithValue("$inFlight", (int)ScheduleStatus.PendingPowerTransition);
+        command.Parameters.AddWithValue("$completed", (int)ScheduleStatus.Completed);
+        command.Parameters.AddWithValue("$failed", (int)ScheduleStatus.Failed);
+        command.Parameters.AddWithValue("$skipped", (int)ScheduleStatus.Skipped);
+        command.Parameters.AddWithValue("$missed", (int)ScheduleStatus.Missed);
+        command.Parameters.AddWithValue("$resultUnknown", (int)ScheduleStatus.ResultUnknown);
+        command.Parameters.AddWithValue("$pending", (int)ScheduleStatus.Pending);
+        command.Parameters.AddWithValue("$disabled", (int)ScheduleStatus.Disabled);
+    }
+
+    private static async Task ReplaceFollowUpProgramsAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        PowerSchedule schedule,
+        CancellationToken cancellationToken)
+    {
+        await using (var delete = connection.CreateCommand())
+        {
+            delete.Transaction = transaction;
+            delete.CommandText = "DELETE FROM FollowUpPrograms WHERE ScheduleId=$scheduleId;";
+            delete.Parameters.AddWithValue("$scheduleId", schedule.Id.ToString("D"));
+            await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        foreach (var program in schedule.FollowUpPrograms)
+        {
+            await using var insert = connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                INSERT INTO FollowUpPrograms(
+                    Id, ScheduleId, ExecutablePath, DelayAfterDesktopReadyMinutes,
+                    Arguments, WorkingDirectory, RunElevated, SortOrder)
+                VALUES($id, $scheduleId, $path, $delay, $arguments, $workingDirectory, $runElevated, $sortOrder);
+                """;
+            insert.Parameters.AddWithValue("$id", program.Id.ToString("D"));
+            insert.Parameters.AddWithValue("$scheduleId", schedule.Id.ToString("D"));
+            insert.Parameters.AddWithValue("$path", program.ExecutablePath);
+            insert.Parameters.AddWithValue("$delay", program.DelayAfterDesktopReadyMinutes);
+            insert.Parameters.AddWithValue("$arguments", (object?)program.Arguments ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$workingDirectory", (object?)program.WorkingDirectory ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$runElevated", program.RunElevated ? 1 : 0);
+            insert.Parameters.AddWithValue("$sortOrder", program.SortOrder);
+            await insert.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    // Ending a series clears the rule on its remaining (past) occurrences; the SeriesId is kept for traceability.
+    private static async Task EndSeriesAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Guid seriesId,
+        Guid exceptScheduleId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE Schedules
+            SET RecurrenceKind=0, RecurrenceDays=0, RecurrenceTimeTicks=NULL
+            WHERE SeriesId=$series AND Id<>$id;
+            """;
+        command.Parameters.AddWithValue("$series", seriesId.ToString("D"));
+        command.Parameters.AddWithValue("$id", exceptScheduleId.ToString("D"));
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task<SqliteConnection> OpenAsync(CancellationToken cancellationToken)
     {
         var connection = new SqliteConnection(_connectionString);
@@ -795,6 +1114,7 @@ public sealed class SqliteStore
 
     private static async Task EnsureColumnAsync(
         SqliteConnection connection,
+        SqliteTransaction transaction,
         string table,
         string column,
         string definition,
@@ -803,6 +1123,7 @@ public sealed class SqliteStore
         var exists = false;
         await using (var info = connection.CreateCommand())
         {
+            info.Transaction = transaction;
             info.CommandText = $"PRAGMA table_info({table});";
             await using var reader = await info.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -818,6 +1139,7 @@ public sealed class SqliteStore
         if (!exists)
         {
             await using var alter = connection.CreateCommand();
+            alter.Transaction = transaction;
             alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
             await alter.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
