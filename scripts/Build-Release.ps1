@@ -65,12 +65,10 @@ if ($null -eq $isccCommand) {
     $isccPath = $isccCommand.Source
 }
 
-# Korean became an official bundled translation in Inno Setup 6.5.
-# Also accept the older unofficial location, but never ship English-only by accident.
-$compilerRoot = Split-Path -Parent $isccPath
-if (-not ((Test-Path -LiteralPath (Join-Path $compilerRoot 'Languages\Korean.isl')) -or
-    (Test-Path -LiteralPath (Join-Path $compilerRoot 'Languages\Unofficial\Korean.isl')))) {
-    throw 'Korean.isl is required. Install Inno Setup 6.5 or newer with its language files.'
+# The Korean messages file is bundled next to the installer script, because some Inno Setup
+# installations (such as the one on GitHub runners) ship without language files.
+if (-not (Test-Path -LiteralPath (Join-Path $root 'installer\Languages\Korean.isl'))) {
+    throw 'installer\Languages\Korean.isl is missing; the installer must not ship English-only.'
 }
 
 & $isccPath "/DMyAppVersion=$Version" (Join-Path $root 'installer\AutoPower.iss')

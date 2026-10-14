@@ -35,7 +35,7 @@ jobs:
 
       - name: Install Inno Setup
         shell: pwsh
-        # 6.5+ bundles Korean.isl; Build-Release also checks the language file.
+        # Korean.isl is bundled in installer/Languages; the runner image may lack language files.
         run: choco install innosetup --no-progress -y
 
       - name: Resolve version

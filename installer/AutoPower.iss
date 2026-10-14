@@ -38,13 +38,9 @@ UninstallDisplayIcon={app}\AutoPower.App.exe
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
-#if FileExists(CompilerPath + "\Languages\Korean.isl")
-Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
-#elif FileExists(CompilerPath + "\Languages\Unofficial\Korean.isl")
-Name: "korean"; MessagesFile: "compiler:Languages\Unofficial\Korean.isl"
-#else
-#error Korean.isl is required. Install Inno Setup 6.5 or newer with its language files.
-#endif
+; Bundled copy of the official Inno Setup 6.5+ Korean translation, so the build does not depend on
+; which language files the build machine's Inno Setup installation includes.
+Name: "korean"; MessagesFile: "Languages\Korean.isl"
 
 [CustomMessages]
 english.RemoveLabel=Uninstall
