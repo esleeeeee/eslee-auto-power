@@ -1,6 +1,6 @@
 # eslee Auto Power
 
-현재 릴리스 준비 버전: **v1.0.8** — [변경·검증·제한](.github/release-notes/v1.0.8.md).
+현재 릴리스 준비 버전: **v2.0.0** — [변경·검증·제한](.github/release-notes/v2.0.0.md).
 
 eslee Auto Power는 원하는 시간에 PC를 깨우거나 완전 종료, 최대 절전, 절전을 예약할 수 있는 Windows 11 앱입니다. PC가 깨어난 뒤 지정한 프로그램을 자동으로 실행할 수도 있습니다.
 
@@ -8,9 +8,9 @@ eslee Auto Power는 원하는 시간에 PC를 깨우거나 완전 종료, 최대
 
 ## 최신 설치 파일 다운로드
 
-[GitHub Releases의 최신 릴리스](https://github.com/esleeeeee/eslee-auto-power/releases/latest)에서 파일 이름이 `-ko-setup.exe`로 끝나는 한국어 설치 파일을 받으세요.
+[GitHub Releases의 최신 릴리스](https://github.com/esleeeeee/eslee-auto-power/releases/latest)에서 파일 이름이 `-setup.exe`로 끝나는 설치 파일을 받으세요. v2.0.0부터 설치 파일 하나가 한국어와 영어를 모두 지원하며, 앱 언어는 설정 > 언어에서 바꿀 수 있습니다.
 
-`Source code (zip)`과 `Source code (tar.gz)`는 개발용 소스 파일이며 설치 프로그램이 아닙니다. 일반 사용자는 `-ko-setup.exe` 파일을 실행하면 됩니다.
+`Source code (zip)`과 `Source code (tar.gz)`는 개발용 소스 파일이며 설치 프로그램이 아닙니다. 일반 사용자는 `-setup.exe` 파일을 실행하면 됩니다.
 
 이 앱은 Windows 11 x64 전용입니다.
 

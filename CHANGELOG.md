@@ -1,5 +1,69 @@
 # 변경 이력 / Changelog
 
+## 2.0.0 - 2026-10-14
+
+### Added
+
+- 반복 예약: 매일, 평일(월–금), 요일 선택. 한 회차가 실행·건너뜀·놓침으로 끝나면 다음 회차를 새 1회성 예약으로 만들며, 동시에 여러 프로세스가 진행해도 다음 회차는 하나만 생깁니다.
+- 예약 이름(최대 40자): 목록, 상세, 5분 전 경고 창, 트레이 툴팁에 표시
+- 예약 복제(상세 버튼과 목록 우클릭 메뉴)
+- 5분 전 경고 창의 미루기: 10분·30분·1시간. 반복 예약의 기준 시각은 바뀌지 않습니다.
+- 다음 동작 카드와 남은 시간 표시, 트레이 아이콘 툴팁의 남은 시간
+- 모두 다시 켜기(주 창 더 보기 메뉴, 트레이). 지난 반복 회차는 다음 회차로 옮겨 다시 켭니다.
+- 트레이 빠른 예약 확장: 30분·1시간·2시간·3시간 후 완전 종료·최대 절전·절전(기존 1·2시간 후 완전 종료는 그대로 최상위 유지)
+- 기록 검색과 결과 필터(성공·실패·건너뜀·경고·정보), 예약별 기록 보기, 사람이 읽기 쉬운 기록 구분 이름
+- 놓치거나 실패한 실행을 주 창 상단 배너로 요약(닫으면 새 문제가 생길 때까지 숨김)
+- 설정 창: 테마(Windows 설정 따르기·밝게·어둡게), 언어, Windows 로그인 시 자동 실행, 1회 자동 로그인 계정, 진단 로그 — 바꾸면 바로 적용
+- 앱 안 언어 전환(한국어/영어, 다시 시작하면 적용)과 한국어·영어 공용 설치 파일 하나
+
+### Changed
+
+- 모든 창을 eslee 시리즈 공통 Windows 11 Fluent 디자인으로 개편: 라이트/다크 테마와 다크 제목 표시줄, 둥근 카드, Segoe Fluent Icons, 테마가 적용된 자체 대화상자
+- 주 창을 왼쪽 탐색(예약·기록·호환성) + 다음 동작 카드 + 예약 목록-상세 구조로 변경. 목록 항목마다 켜기/끄기 토글과 우클릭 메뉴 제공, Ctrl+N(새 예약)·F5(새로 고침)·Delete·Enter 키 지원
+- 예약 편집 창을 동작 카드, 이름, 날짜·시간과 빠른 설정, 반복, 자동 시작 옵션, 후속 프로그램 목록(수정·제거) 구성으로 변경. 후속 프로그램은 EXE 끌어다 놓기 지원
+- 창을 트레이로 숨길 때의 풍선 알림은 처음 한 번만 표시
+- 앱을 두 번 실행하면 새 인스턴스 대신 기존 창을 표시(데이터 위치별 단일 실행)
+- 접근성: 아이콘 버튼과 목록 항목·선택지에 화면 낭독기용 이름, 토글은 Checked/Unchecked에서 저장
+
+### Fixed
+
+- 모니터를 끈 채 원격 접속하면 창이 흰 화면으로 보이던 문제(WPF 소프트웨어 렌더링 사용)
+- 예약 편집·스누즈와 전원 작업 실행이 겹칠 때 바뀐 시각으로 이전 작업이 실행될 수 있던 경쟁 상태(실행 시작 시 예약 시각 일치 확인), 실행 중인 예약을 저장으로 덮어쓰지 못하게 보호
+- 건너뛰기·모두 일시 중지가 DB 상태를 먼저 조건부로 바꾼 뒤 작업을 지우도록 순서를 바꿔, 진행 중인 완전 종료의 대체 작업이 사라지지 않게 함
+- 테스트가 서로의 SQLite 연결 풀을 비워 가끔 실패하던 문제
+
+## 2.0.0 - English summary
+
+### Added
+
+- Recurring schedules: every day, weekdays (Mon–Fri) or chosen days. When an occurrence runs, is skipped or is missed, the next one is created as a new one-time schedule; concurrent processes still create only one next occurrence.
+- Schedule names (up to 40 characters), shown in the list, details, 5-minute warning and tray tooltip
+- Duplicate a schedule from the details pane or the list context menu
+- Snooze in the 5-minute warning: 10 min, 30 min or 1 hour; a recurring series keeps its anchor time
+- Next-action card with time remaining, also in the tray icon tooltip
+- Turn all back on (main window More menu and tray); past recurring occurrences move to their next slot
+- More tray quick schedules: shut down, hibernate or sleep in 30 min, 1, 2 or 3 hours (the existing 1/2-hour shutdown items stay at the top level)
+- History search and result filters, per-schedule history, readable event names
+- A banner that summarizes missed or failed runs since you last dismissed it
+- Settings window with theme (follow Windows, light, dark), language, start at sign-in, one-time sign-in account and diagnostic logs; changes apply immediately
+- In-app language selection (Korean/English, applies after restart) and one installer for both languages
+
+### Changed
+
+- Every window redesigned in the eslee series Windows 11 Fluent style: light/dark themes with a matching title bar, rounded cards, Segoe Fluent Icons and themed dialogs
+- Main window reorganized into navigation (Schedules, History, Compatibility), a next-action card and a schedule list with details; each item has an on/off toggle and a context menu; Ctrl+N, F5, Delete and Enter shortcuts
+- Schedule editor reorganized into action cards, name, date/time with quick buttons, repeat, wake options and an editable follow-up program list; EXE files can be dropped onto the program editor
+- The hide-to-tray balloon appears only once
+- Launching the app again shows the running window instead of starting a second instance
+- Accessibility: screen-reader names for icon buttons, list items and options; toggles save on Checked/Unchecked
+
+### Fixed
+
+- Blank white windows during remote sessions with the monitor off (WPF software rendering)
+- A race where an edit or snooze overlapping the power task could let the old task run at the changed time; in-flight schedules can no longer be overwritten by a save
+- Skip and pause-all now change the database conditionally before removing tasks, so an in-progress shutdown keeps its fallback task
+- Tests that cleared every SQLite connection pool and occasionally broke each other
+
 ## 1.0.7 - 2026-08-10
 
 ### Added
