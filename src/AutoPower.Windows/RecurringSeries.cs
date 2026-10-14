@@ -32,15 +32,18 @@ public sealed class RecurringSeriesService
     /// Best effort: creates and registers the next occurrence after <paramref name="occurrenceId"/> began,
     /// was skipped or was finalized. Failures are logged and recorded as RecurrenceAdvanceFailed history;
     /// this method never throws except for cancellation, so it can run inside the power-transition path.
+    /// With <paramref name="createDisabled"/> the next occurrence is created Disabled (no tasks are registered).
     /// </summary>
     public async Task<PowerSchedule?> AdvanceAfterOccurrenceAsync(
         Guid occurrenceId,
+        bool createDisabled = false,
         CancellationToken cancellationToken = default)
     {
         PowerSchedule? next;
         try
         {
-            next = await _store.TryAdvanceSeriesAsync(occurrenceId, _localNow(), cancellationToken: cancellationToken)
+            next = await _store.TryAdvanceSeriesAsync(
+                    occurrenceId, _localNow(), createDisabled: createDisabled, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception error) when (error is not OperationCanceledException)
@@ -62,7 +65,7 @@ public sealed class RecurringSeriesService
 
         _logger.Information("recurrence.advanced",
             $"occurrence={occurrenceId:D};next={next.Id:D};time={next.ScheduledLocalDateTime:O}");
-        if (_registrar is null)
+        if (_registrar is null || !next.IsEnabled)
         {
             return next;
         }
@@ -107,7 +110,7 @@ public sealed class RecurringSeriesService
         var created = new List<PowerSchedule>();
         foreach (var latest in candidates)
         {
-            var next = await AdvanceAfterOccurrenceAsync(latest.Id, cancellationToken).ConfigureAwait(false);
+            var next = await AdvanceAfterOccurrenceAsync(latest.Id, cancellationToken: cancellationToken).ConfigureAwait(false);
             if (next is not null)
             {
                 created.Add(next);
@@ -138,6 +141,122 @@ public sealed class RecurringSeriesService
         catch (Exception historyError) when (historyError is not OperationCanceledException)
         {
             _logger.Error("recurrence.failure-history-failed", historyError, $"schedule={scheduleId:D}");
+        }
+    }
+}
+
+/// <summary>Helper-side implementation of the skip-schedule, restore-skipped and remove-schedule commands.</summary>
+public sealed class ScheduleSkipOperations
+{
+    private readonly SqliteStore _store;
+    private readonly ISystemScheduleRegistrar _registrar;
+    private readonly RecurringSeriesService _series;
+    private readonly Func<DateTime> _localNow;
+
+    public ScheduleSkipOperations(
+        SqliteStore store,
+        ISystemScheduleRegistrar registrar,
+        TechnicalLogger logger,
+        Func<DateTime>? localNow = null)
+    {
+        _store = store;
+        _registrar = registrar;
+        _localNow = localNow ?? (() => DateTime.Now);
+        _series = new RecurringSeriesService(store, registrar, logger, _localNow);
+    }
+
+    /// <summary>
+    /// Skips one occurrence. The database transition is conditional (a started or finished schedule keeps its
+    /// state and its tasks). A recurring series advances to its next occurrence; skipping a Disabled (paused)
+    /// occurrence creates that next occurrence Disabled too, so the series stays paused.
+    /// </summary>
+    public async Task SkipAsync(Guid scheduleId, CancellationToken cancellationToken = default)
+    {
+        var schedule = await _store.GetScheduleAsync(scheduleId, cancellationToken).ConfigureAwait(false)
+                       ?? throw new KeyNotFoundException("예약을 찾을 수 없습니다.");
+        bool wasPaused;
+        if (await _store.TryTransitionScheduleAsync(
+                scheduleId, [ScheduleStatus.Pending], false, ScheduleStatus.Skipped,
+                cancellationToken: cancellationToken).ConfigureAwait(false))
+        {
+            wasPaused = false;
+        }
+        else if (await _store.TryTransitionScheduleAsync(
+                     scheduleId, [ScheduleStatus.Disabled], false, ScheduleStatus.Skipped,
+                     cancellationToken: cancellationToken).ConfigureAwait(false))
+        {
+            wasPaused = true;
+        }
+        else
+        {
+            throw new InvalidOperationException("이미 실행이 시작됐거나 끝난 예약은 건너뛸 수 없습니다.");
+        }
+
+        _registrar.Remove(scheduleId);
+        await _store.AddHistoryAsync(scheduleId, HistoryEventTypes.ScheduleSkipped, ResultKind.Skipped, schedule.ScheduledLocalDateTime,
+            "사용자가 이번 예약을 건너뛰었습니다.", cancellationToken: cancellationToken).ConfigureAwait(false);
+        await _series.AdvanceAfterOccurrenceAsync(scheduleId, wasPaused, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Undoes a skip (see <see cref="SqliteStore.RestoreSkippedAsync"/>), removes the tasks of the occurrence the
+    /// skip advanced to and re-registers the restored schedule. If registration fails, the schedule goes back to
+    /// Skipped and the series is advanced again, then the error is rethrown.
+    /// </summary>
+    public async Task<PowerSchedule> RestoreSkippedAsync(Guid scheduleId, CancellationToken cancellationToken = default)
+    {
+        var result = await _store.RestoreSkippedAsync(scheduleId, _localNow(), cancellationToken).ConfigureAwait(false);
+        foreach (var removed in result.RemovedOccurrenceIds)
+        {
+            _registrar.Remove(removed);
+        }
+
+        try
+        {
+            _registrar.Register(result.Schedule);
+        }
+        catch
+        {
+            if (!result.AlreadyRestored &&
+                await _store.TryTransitionScheduleAsync(
+                    scheduleId, [ScheduleStatus.Pending], false, ScheduleStatus.Skipped,
+                    result.Schedule.ScheduledLocalDateTime, cancellationToken: CancellationToken.None).ConfigureAwait(false))
+            {
+                await _series.AdvanceAfterOccurrenceAsync(scheduleId, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            }
+
+            throw;
+        }
+
+        return result.Schedule;
+    }
+
+    /// <summary>
+    /// Removes the tasks of a schedule that is about to be deleted, and of the other live occurrences of its
+    /// series, which the database delete removes as well. An in-flight schedule is refused so that its shutdown
+    /// fallback task survives.
+    /// </summary>
+    public async Task RemoveTasksForDeleteAsync(Guid scheduleId, CancellationToken cancellationToken = default)
+    {
+        var schedules = await _store.GetAllSchedulesAsync(cancellationToken).ConfigureAwait(false);
+        var schedule = schedules.SingleOrDefault(item => item.Id == scheduleId);
+        if (schedule?.Status == ScheduleStatus.PendingPowerTransition)
+        {
+            throw new ScheduleStateConflictException(SqliteStore.InFlightDeleteMessage);
+        }
+
+        _registrar.Remove(scheduleId);
+        if (schedule?.SeriesId is not Guid seriesId)
+        {
+            return;
+        }
+
+        foreach (var sibling in schedules.Where(item =>
+                     item.Id != scheduleId &&
+                     item.SeriesId == seriesId &&
+                     item.Status is ScheduleStatus.Pending or ScheduleStatus.Disabled))
+        {
+            _registrar.Remove(sibling.Id);
         }
     }
 }

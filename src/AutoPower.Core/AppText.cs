@@ -518,6 +518,13 @@ public static class AppText
         ("빠른 완전 종료 메뉴에 시간 값이 없습니다.", "The quick shutdown menu item has no delay."),
         ("미래 예약 {0}개", "Future schedules: {0}"),
         ("앱 동작", "Behavior"),
+        ("건너뛴 예약만 다시 켤 수 있습니다. 예약 상태가 이미 바뀌었습니다.", "Only a skipped schedule can be turned back on. The schedule's state has already changed."),
+        ("예약 시각이 지났거나 너무 가까워 건너뛴 예약을 다시 켤 수 없습니다.", "The skipped schedule cannot be turned back on because its time has passed or is too close."),
+        ("건너뛴 예약을 다시 켰습니다.", "The skipped schedule was turned back on."),
+        ("실행이 시작된 예약은 삭제할 수 없습니다. 실행 결과가 확정된 뒤 다시 시도하세요.", "A schedule whose run has started cannot be deleted. Try again after its result is confirmed."),
+        ("예약을 찾을 수 없습니다.", "The schedule could not be found."),
+        ("삭제할 예약을 찾을 수 없습니다.", "The schedule to delete could not be found."),
+        ("사용자가 이번 예약을 건너뛰었습니다.", "The user skipped this schedule."),
     ];
 
     private static readonly (string Korean, string English)[] PhraseTranslations =

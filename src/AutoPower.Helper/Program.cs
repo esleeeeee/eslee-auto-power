@@ -67,7 +67,7 @@ internal static class HelperProgram
                 case "remove-schedule":
                 {
                     var id = RequiredScheduleId(args);
-                    registrar.Remove(id);
+                    await new ScheduleSkipOperations(store, registrar, logger).RemoveTasksForDeleteAsync(id).ConfigureAwait(false);
                     var journal = autologon.CurrentJournal;
                     if (journal is not null && journal.ScheduleId == id && journal.State is not AutologonJournalState.Cleaned)
                     {
@@ -415,22 +415,13 @@ internal static class HelperProgram
                 case "skip-schedule":
                 {
                     var id = RequiredScheduleId(args);
-                    var schedule = await RequiredScheduleAsync(store, id).ConfigureAwait(false);
-                    // Conditional transition first: a schedule whose power transition already began keeps its
-                    // durable state and its shutdown fallback task.
-                    if (!await store.TryTransitionScheduleAsync(
-                            id,
-                            [ScheduleStatus.Pending, ScheduleStatus.Disabled],
-                            false,
-                            ScheduleStatus.Skipped).ConfigureAwait(false))
-                    {
-                        throw new InvalidOperationException("이미 실행이 시작됐거나 끝난 예약은 건너뛸 수 없습니다.");
-                    }
-
-                    registrar.Remove(id);
-                    await store.AddHistoryAsync(id, "ScheduleSkipped", ResultKind.Skipped, schedule.ScheduledLocalDateTime,
-                        "사용자가 이번 예약을 건너뛰었습니다.").ConfigureAwait(false);
-                    await recurringSeries.AdvanceAfterOccurrenceAsync(id).ConfigureAwait(false);
+                    await new ScheduleSkipOperations(store, registrar, logger).SkipAsync(id).ConfigureAwait(false);
+                    return 0;
+                }
+                case "restore-skipped":
+                {
+                    var id = RequiredScheduleId(args);
+                    await new ScheduleSkipOperations(store, registrar, logger).RestoreSkippedAsync(id).ConfigureAwait(false);
                     return 0;
                 }
                 case "run-sleep-wake-test":
