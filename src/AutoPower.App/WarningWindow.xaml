@@ -59,7 +59,7 @@
                                    VerticalAlignment="Center" Margin="8,1,0,0" />
                     </StackPanel>
                     <Button.ContextMenu>
-                        <ContextMenu x:Name="SnoozeMenu">
+                        <ContextMenu x:Name="SnoozeMenu" Closed="SnoozeMenu_Closed">
                             <MenuItem Header="10분 뒤로" Tag="10" Click="SnoozeOption_Click" />
                             <MenuItem Header="30분 뒤로" Tag="30" Click="SnoozeOption_Click" />
                             <MenuItem Header="1시간 뒤로" Tag="60" Click="SnoozeOption_Click" />

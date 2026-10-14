@@ -16,6 +16,8 @@ public partial class WarningWindow : ThemedWindow
     private int _seconds = 30;
     private bool _decisionMade;
     private bool _closingForCapture;
+    private bool _busy;
+    private bool _closeAfterDecision;
 
     public WarningWindow(PowerSchedule schedule, PowerSchedule? nextWake = null)
     {
@@ -75,6 +77,7 @@ public partial class WarningWindow : ThemedWindow
         var skippedShutdownForWake = false;
         _decisionMade = true;
         _timer.Stop();
+        SetBusy(true);
         try
         {
             if (_schedule.ActionType == PowerActionType.Shutdown && _nextWake is not null)
@@ -82,7 +85,7 @@ public partial class WarningWindow : ThemedWindow
                 await AppServices.Helper.RunAsync(["skip-schedule", "--schedule", _schedule.Id.ToString("D")]);
                 skippedShutdownForWake = true;
                 await AppServices.Helper.RunAsync(["prepare-wake", "--schedule", _nextWake.Id.ToString("D")]);
-                Close();
+                CloseAfterDecision();
             }
             else if (PowerSchedulePolicy.IsWakeSchedule(_schedule.ActionType))
             {
@@ -90,7 +93,7 @@ public partial class WarningWindow : ThemedWindow
                 await AppServices.Store.SetSettingAsync($"wake-decision:{_schedule.Id:D}", "now");
                 await AppServices.Store.SetSettingAsync($"virtual-t0:{_schedule.Id:D}", now.ToString("O", CultureInfo.InvariantCulture));
                 StartAgent("now");
-                Close();
+                CloseAfterDecision();
             }
             else
             {
@@ -113,6 +116,7 @@ public partial class WarningWindow : ThemedWindow
 
             MessageBox.Show(error.Message, "eslee Auto Power", MessageBoxButton.OK, MessageBoxImage.Error);
             _decisionMade = false;
+            SetBusy(false);
             _timer.Start();
         }
     }
@@ -122,14 +126,39 @@ public partial class WarningWindow : ThemedWindow
     {
         _decisionMade = true;
         _closingForCapture = true;
+        CloseAfterDecision();
+    }
+
+    private void SetBusy(bool busy)
+    {
+        _busy = busy;
+        NowButton.IsEnabled = !busy;
+        SnoozeButton.IsEnabled = !busy;
+        SkipButton.IsEnabled = !busy;
+        KeepButton.IsEnabled = !busy;
+    }
+
+    private void CloseAfterDecision()
+    {
+        _closeAfterDecision = true;
         Close();
     }
 
     private void Snooze_Click(object sender, RoutedEventArgs e)
     {
+        // Pause the 30-second auto-keep countdown while the user is choosing a snooze length.
+        _timer.Stop();
         SnoozeMenu.PlacementTarget = SnoozeButton;
         SnoozeMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Top;
         SnoozeMenu.IsOpen = true;
+    }
+
+    private void SnoozeMenu_Closed(object sender, RoutedEventArgs e)
+    {
+        if (!_decisionMade)
+        {
+            _timer.Start();
+        }
     }
 
     private async void SnoozeOption_Click(object sender, RoutedEventArgs e)
@@ -142,15 +171,17 @@ public partial class WarningWindow : ThemedWindow
 
         _decisionMade = true;
         _timer.Stop();
+        SetBusy(true);
         try
         {
             await AppServices.Coordinator.SnoozeAsync(_schedule.Id, minutes);
-            Close();
+            CloseAfterDecision();
         }
         catch (Exception error)
         {
             MessageBox.Show(error.Message, "eslee Auto Power", MessageBoxButton.OK, MessageBoxImage.Error);
             _decisionMade = false;
+            SetBusy(false);
             _timer.Start();
         }
     }
@@ -165,6 +196,7 @@ public partial class WarningWindow : ThemedWindow
     {
         _decisionMade = true;
         _timer.Stop();
+        SetBusy(true);
         try
         {
             if (PowerSchedulePolicy.IsWakeSchedule(_schedule.ActionType))
@@ -173,12 +205,13 @@ public partial class WarningWindow : ThemedWindow
             }
 
             await AppServices.Helper.RunAsync(["skip-schedule", "--schedule", _schedule.Id.ToString("D")]);
-            Close();
+            CloseAfterDecision();
         }
         catch (Exception error)
         {
             MessageBox.Show(error.Message, "eslee Auto Power", MessageBoxButton.OK, MessageBoxImage.Error);
             _decisionMade = false;
+            SetBusy(false);
             _timer.Start();
         }
     }
@@ -204,6 +237,13 @@ public partial class WarningWindow : ThemedWindow
 
     private void WarningWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        // While a snooze, skip or "now" request is still running, closing would end the app mid-operation.
+        if (_busy && !_closeAfterDecision)
+        {
+            e.Cancel = true;
+            return;
+        }
+
         _timer.Stop();
         if (!_decisionMade)
         {

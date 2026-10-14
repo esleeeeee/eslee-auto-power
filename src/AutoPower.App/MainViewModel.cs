@@ -190,15 +190,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
             .Where(schedule => PowerSchedulePolicy.IsRemovedSchedule(schedule.ActionType))
             .Select(schedule => schedule.Id)
             .ToHashSet();
+        // A paused recurring series stays listed after its paused time has passed so it can be turned
+        // back on (it moves to the next slot) or deleted; otherwise it would become unreachable.
         var schedules = allSchedules
-            .Where(schedule => schedule.ScheduledLocalDateTime > _now &&
-                               schedule.Status is ScheduleStatus.Pending or ScheduleStatus.Disabled &&
-                               !PowerSchedulePolicy.IsRemovedSchedule(schedule.ActionType))
-            .OrderBy(schedule => schedule.ScheduledLocalDateTime);
+            .Where(schedule => !PowerSchedulePolicy.IsRemovedSchedule(schedule.ActionType) &&
+                               ((schedule.ScheduledLocalDateTime > _now &&
+                                 schedule.Status is ScheduleStatus.Pending or ScheduleStatus.Disabled) ||
+                                (schedule.Status == ScheduleStatus.Disabled && RecurrencePolicy.IsUsable(schedule.Recurrence))))
+            .Select(schedule => new ScheduleRow(schedule, allSchedules))
+            .OrderBy(row => row.DisplayTime);
         Schedules.Clear();
-        foreach (var schedule in schedules)
+        foreach (var row in schedules)
         {
-            Schedules.Add(new ScheduleRow(schedule, allSchedules));
+            Schedules.Add(row);
         }
 
         History.Clear();
@@ -360,10 +364,20 @@ public sealed record ScheduleRow(PowerSchedule Schedule, IReadOnlyList<PowerSche
     /// <summary>Groups occurrences of one recurring series (the schedule id otherwise).</summary>
     public Guid? SeriesKey => ScheduleExtras.SeriesKey(Schedule);
 
-    public string TimeText => Schedule.ScheduledLocalDateTime.ToString("HH:mm", CultureInfo.InvariantCulture);
-    public string DateText => UiText.DateLabel(Schedule.ScheduledLocalDateTime);
-    public string LongDateText => UiText.LongDate(Schedule.ScheduledLocalDateTime);
-    public string WhenText => UiText.When(Schedule.ScheduledLocalDateTime, DateTime.Now);
+    /// <summary>
+    /// The stored time, except for a paused recurring occurrence whose time has passed: that one shows
+    /// the slot it moves to when it is turned back on.
+    /// </summary>
+    public DateTime DisplayTime =>
+        !Schedule.IsEnabled && Schedule.Recurrence is { } rule && RecurrencePolicy.IsUsable(rule) &&
+        Schedule.ScheduledLocalDateTime <= DateTime.Now
+            ? RecurrencePolicy.NextOccurrenceAfter(rule, Schedule.ScheduledLocalDateTime, DateTime.Now)
+            : Schedule.ScheduledLocalDateTime;
+
+    public string TimeText => DisplayTime.ToString("HH:mm", CultureInfo.InvariantCulture);
+    public string DateText => UiText.DateLabel(DisplayTime);
+    public string LongDateText => UiText.LongDate(DisplayTime);
+    public string WhenText => UiText.When(DisplayTime, DateTime.Now);
     public string ActionText => UiText.ActionName(Schedule.ActionType);
     public string? NameText => ScheduleExtras.Name(Schedule);
     public string TitleText => NameText ?? ActionText;
@@ -396,7 +410,7 @@ public sealed record ScheduleRow(PowerSchedule Schedule, IReadOnlyList<PowerSche
         _ => Glyphs.Clock
     };
 
-    public string Summary => $"{Schedule.ScheduledLocalDateTime:MM.dd HH:mm} {ActionText}";
+    public string Summary => $"{DisplayTime:MM.dd HH:mm} {ActionText}";
 
     /// <summary>Name read by screen readers for the list item.</summary>
     public override string ToString() =>

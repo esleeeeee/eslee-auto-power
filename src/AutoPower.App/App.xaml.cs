@@ -195,7 +195,9 @@ public partial class App : System.Windows.Application
 
         ReleaseSingleInstance();
         var startInfo = new System.Diagnostics.ProcessStartInfo(executable) { UseShellExecute = false };
-        foreach (var argument in Environment.GetCommandLineArgs().Skip(1))
+        // Drop "tray" so a restart requested from the open window comes back visible.
+        foreach (var argument in Environment.GetCommandLineArgs().Skip(1)
+                     .Where(argument => !string.Equals(argument, "tray", StringComparison.OrdinalIgnoreCase)))
         {
             startInfo.ArgumentList.Add(argument);
         }

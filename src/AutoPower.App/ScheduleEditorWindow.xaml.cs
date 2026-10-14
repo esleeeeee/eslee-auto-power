@@ -57,7 +57,11 @@ public partial class ScheduleEditorWindow : ThemedWindow
                 : PowerSchedulePolicy.IsRemovedSchedule(existing.ActionType)
                     ? "이전 전원 예약 전환"
                     : "예약 수정");
-            SetPlannedTime(existing.ScheduledLocalDateTime);
+            // A recurring occurrence may have been snoozed; editing starts from the series anchor time
+            // so that renaming a snoozed occurrence does not move every later occurrence.
+            SetPlannedTime(existing.Recurrence is { } rule && RecurrencePolicy.IsUsable(rule)
+                ? RecurrencePolicy.FirstOccurrence(rule, existing.ScheduledLocalDateTime.Date + rule.TimeOfDay, DateTime.Now)
+                : existing.ScheduledLocalDateTime);
             ActionButton(ToEditorAction(existing.ActionType)).IsChecked = true;
             WakeModeInput.SelectedValue = existing.ActionType switch
             {

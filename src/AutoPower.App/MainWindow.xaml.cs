@@ -292,7 +292,7 @@ public partial class MainWindow : ThemedWindow
             var validation = await AppServices.Coordinator.SaveAsync(editor.ResultSchedule);
             if (!validation.IsValid)
             {
-                MessageBox.Show(string.Join(Environment.NewLine, validation.Issues.Select(issue => "• " + issue.Message)),
+                MessageBox.Show(string.Join(Environment.NewLine, validation.Issues.Select(issue => "• " + AppText.T(issue.Message))),
                     "예약을 저장할 수 없습니다", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }

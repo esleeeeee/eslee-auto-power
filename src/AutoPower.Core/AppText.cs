@@ -76,12 +76,9 @@ public static class AppText
         }
 
         var result = text;
-        foreach (var (korean, english) in ExactTranslations)
+        foreach (var (korean, english) in SubstringTranslations)
         {
-            if (korean.Length >= 8)
-            {
-                result = result.Replace(korean, english, StringComparison.Ordinal);
-            }
+            result = result.Replace(korean, english, StringComparison.Ordinal);
         }
 
         foreach (var (korean, english) in PhraseTranslations)
@@ -578,4 +575,11 @@ public static class AppText
         ("미실행 — 예약 시각에 전원 작업이 실행된 증거가 없습니다.", "Missed — there is no evidence that the power task ran at the scheduled time."),
         ("사용자 선택으로 ", "User selected ")
     ];
+
+    // Longer sentences first, so a short key never rewrites part of a longer translated sentence.
+    // Declared after both tables because static fields initialize in textual order.
+    private static readonly (string Korean, string English)[] SubstringTranslations = ExactTranslations
+        .Where(pair => pair.Korean.Length >= 8)
+        .OrderByDescending(pair => pair.Korean.Length)
+        .ToArray();
 }
