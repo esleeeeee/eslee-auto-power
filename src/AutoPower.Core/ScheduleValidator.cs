@@ -32,6 +32,28 @@ public sealed class ScheduleValidator
             issues.Add(new("wake-options", "1회 자동 로그인과 후속 프로그램은 S3/S4 예약 깨우기에서만 사용할 수 있습니다."));
         }
 
+        if (schedule.Name is { Length: > PowerSchedule.MaxNameLength })
+        {
+            issues.Add(new("name-too-long", "예약 이름은 40자 이하로 입력하세요."));
+        }
+
+        if (schedule.Recurrence is { } recurrence)
+        {
+            if (!PowerSchedulePolicy.IsPowerTransition(schedule.ActionType) &&
+                !PowerSchedulePolicy.IsWakeSchedule(schedule.ActionType))
+            {
+                issues.Add(new("recurrence-action", "반복 예약은 자동 시작, 완전 종료, 최대 절전, 절전에서만 사용할 수 있습니다."));
+            }
+            else if (recurrence.Kind == RecurrenceKind.Weekly && recurrence.EffectiveDays == RecurrenceDays.None)
+            {
+                issues.Add(new("recurrence-days", "요일 반복은 하나 이상의 요일을 선택해야 합니다."));
+            }
+            else if (!RecurrencePolicy.IsUsable(recurrence))
+            {
+                issues.Add(new("recurrence-invalid", "반복 규칙이 올바르지 않습니다."));
+            }
+        }
+
         foreach (var program in schedule.FollowUpPrograms)
         {
             if (program.DelayAfterDesktopReadyMinutes < 0)

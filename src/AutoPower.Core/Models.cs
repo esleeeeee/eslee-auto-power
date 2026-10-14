@@ -131,6 +131,29 @@ public static class ScheduleTimePolicy
         return NormalizeToMinute(clickedAtLocal.AddHours(hours));
     }
 
+    public static IReadOnlyList<int> SnoozeMinutes { get; } = [10, 30, 60];
+
+    public static bool IsSupportedSnooze(int minutes) => SnoozeMinutes.Contains(minutes);
+
+    public static DateTime Snooze(DateTime scheduledLocal, DateTime nowLocal, int minutes)
+    {
+        if (!IsSupportedSnooze(minutes))
+        {
+            throw new ArgumentOutOfRangeException(nameof(minutes), "예약은 10분, 30분, 60분 중 하나로만 미룰 수 있습니다.");
+        }
+
+        var scheduled = DateTime.SpecifyKind(scheduledLocal, DateTimeKind.Unspecified);
+        var roundedNow = CeilingToMinute(DateTime.SpecifyKind(nowLocal, DateTimeKind.Unspecified));
+        var baseline = scheduled > roundedNow ? scheduled : roundedNow;
+        return baseline.AddMinutes(minutes);
+    }
+
+    private static DateTime CeilingToMinute(DateTime value)
+    {
+        var floor = NormalizeToMinute(value);
+        return floor == value ? floor : floor.AddMinutes(1);
+    }
+
     private static DateTime NormalizeToMinute(DateTime value) =>
         new(value.Year, value.Month, value.Day, value.Hour, value.Minute, 0, DateTimeKind.Unspecified);
 }
@@ -176,18 +199,47 @@ public sealed record PowerSchedule(
     ScheduleStatus Status,
     IReadOnlyList<FollowUpProgram> FollowUpPrograms)
 {
+    public const int MaxNameLength = 40;
+
+    private readonly string? _name;
+    private readonly RecurrenceRule? _recurrence;
+
+    /// <summary>Optional memo name; trimmed, and blank values are stored as null.</summary>
+    public string? Name
+    {
+        get => _name;
+        init => _name = NormalizeName(value);
+    }
+
+    /// <summary>Recurrence rule; null for one-time schedules.</summary>
+    public RecurrenceRule? Recurrence
+    {
+        get => _recurrence;
+        init => _recurrence = value is { Kind: RecurrenceKind.None } ? null : value;
+    }
+
+    /// <summary>Links the occurrences of one series. Each occurrence remains a separate one-shot schedule row.</summary>
+    public Guid? SeriesId { get; init; }
+
+    public bool IsRecurring => Recurrence is not null;
+
+    public static string? NormalizeName(string? name) =>
+        string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+
     public static PowerSchedule Create(
         DateTime scheduledLocalDateTime,
         PowerActionType actionType,
         bool oneTimeAutoLogonEnabled = false,
-        IReadOnlyList<FollowUpProgram>? followUpPrograms = null)
+        IReadOnlyList<FollowUpProgram>? followUpPrograms = null,
+        string? name = null,
+        RecurrenceRule? recurrence = null)
     {
         var now = DateTimeOffset.UtcNow;
         var id = Guid.NewGuid();
         var programs = (followUpPrograms ?? [])
             .Select((program, index) => program with { ScheduleId = id, SortOrder = index })
             .ToArray();
-        return new PowerSchedule(
+        var schedule = new PowerSchedule(
             id,
             DateTime.SpecifyKind(scheduledLocalDateTime, DateTimeKind.Unspecified),
             actionType,
@@ -196,7 +248,64 @@ public sealed record PowerSchedule(
             now,
             now,
             ScheduleStatus.Pending,
-            programs);
+            programs)
+        {
+            Name = name,
+            Recurrence = recurrence
+        };
+        return schedule.IsRecurring ? schedule with { SeriesId = Guid.NewGuid() } : schedule;
+    }
+
+    /// <summary>
+    /// Creates a fresh copy for the UI duplicate command: new schedule and program IDs, enabled and Pending,
+    /// same name, options and rule. A recurring copy starts a new series anchored at the new time of day.
+    /// </summary>
+    public PowerSchedule DuplicateAsNew(DateTime scheduledLocalDateTime)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var id = Guid.NewGuid();
+        var planned = DateTime.SpecifyKind(scheduledLocalDateTime, DateTimeKind.Unspecified);
+        return this with
+        {
+            Id = id,
+            ScheduledLocalDateTime = planned,
+            IsEnabled = true,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+            Status = ScheduleStatus.Pending,
+            FollowUpPrograms = FollowUpPrograms
+                .OrderBy(program => program.SortOrder)
+                .Select((program, index) => program with { Id = Guid.NewGuid(), ScheduleId = id, SortOrder = index })
+                .ToArray(),
+            Recurrence = Recurrence is null ? null : Recurrence with { TimeOfDay = planned.TimeOfDay },
+            SeriesId = Recurrence is null ? null : Guid.NewGuid()
+        };
+    }
+
+    /// <summary>
+    /// Creates the next occurrence row of the same series; only identity, time and execution state change.
+    /// </summary>
+    public PowerSchedule CreateNextOccurrence(DateTime nextLocalDateTime, DateTimeOffset nowUtc)
+    {
+        if (Recurrence is null || SeriesId is null)
+        {
+            throw new InvalidOperationException("반복 예약이 아닙니다.");
+        }
+
+        var id = Guid.NewGuid();
+        return this with
+        {
+            Id = id,
+            ScheduledLocalDateTime = DateTime.SpecifyKind(nextLocalDateTime, DateTimeKind.Unspecified),
+            IsEnabled = true,
+            CreatedAtUtc = nowUtc,
+            UpdatedAtUtc = nowUtc,
+            Status = ScheduleStatus.Pending,
+            FollowUpPrograms = FollowUpPrograms
+                .OrderBy(program => program.SortOrder)
+                .Select((program, index) => program with { Id = Guid.NewGuid(), ScheduleId = id, SortOrder = index })
+                .ToArray()
+        };
     }
 }
 
