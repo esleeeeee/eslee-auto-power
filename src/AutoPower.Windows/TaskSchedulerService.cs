@@ -415,7 +415,7 @@ public sealed class TaskSchedulerService : ISystemScheduleRegistrar, IShutdownFa
                 name,
                 definition,
                 false,
-                CurrentUserName(),
+                ResolveInteractiveUser(session.Folder),
                 true);
         }
         finally
@@ -498,11 +498,45 @@ public sealed class TaskSchedulerService : ISystemScheduleRegistrar, IShutdownFa
         }
         else
         {
-            var user = interactiveUser ?? CurrentUserName();
+            var user = interactiveUser ?? ResolveInteractiveUser(folder);
             definition.Principal.UserId = user;
             definition.Principal.LogonType = TaskLogonInteractiveToken;
             definition.Principal.RunLevel = runHighest ? TaskRunLevelHighest : TaskRunLevelLua;
             dynamic task = folder.RegisterTaskDefinition(name, definition, TaskCreateOrUpdate, user, null, TaskLogonInteractiveToken, null);
+            Release(task);
+        }
+    }
+
+    // User-session tasks (warning, follow-ups) registered from a SYSTEM context such as startup-reconcile,
+    // execute-power or a recurring-series advance must run for the signed-in user, not for SYSTEM. The
+    // desktop-agent logon task is registered by the elevated helper for that user, so its principal is reused.
+    private static string ResolveInteractiveUser(dynamic folder)
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        if (!identity.IsSystem)
+        {
+            return identity.Name;
+        }
+
+        dynamic? task = null;
+        dynamic? definition = null;
+        dynamic? principal = null;
+        try
+        {
+            task = folder.GetTask("desktop-agent");
+            definition = task.Definition;
+            principal = definition.Principal;
+            var user = (string?)principal.UserId;
+            return string.IsNullOrWhiteSpace(user) ? identity.Name : user;
+        }
+        catch (Exception error) when (IsMissingSchedulerObject(error))
+        {
+            return identity.Name;
+        }
+        finally
+        {
+            Release(principal);
+            Release(definition);
             Release(task);
         }
     }

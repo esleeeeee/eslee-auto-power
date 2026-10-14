@@ -323,7 +323,27 @@ public static class AppText
         ("완전 종료 예약 확인", "Confirm full-shutdown schedule"),
         ("완전 종료 전에 확인하세요", "Check before full shutdown"),
         ("예약 시각에는 정상 종료를 먼저 시도하고, 30초 안에 끝나지 않으면 강제 종료합니다. 완전히 종료된 뒤에는 앱의 자동 시작 예약으로 PC를 다시 켤 수 없습니다.", "At the scheduled time, the app first requests a graceful shutdown and forces shutdown if it has not completed within 30 seconds. After full shutdown, this app cannot turn the PC back on for a scheduled wake."),
-        ("지금 완전 종료", "Shut down now")
+        ("지금 완전 종료", "Shut down now"),
+        ("예약 이름은 40자 이하로 입력하세요.", "Enter a schedule name of 40 characters or fewer."),
+        ("반복 예약은 자동 시작, 완전 종료, 최대 절전, 절전에서만 사용할 수 있습니다.", "Repeat is available only for scheduled wake, full shutdown, hibernation, and sleep."),
+        ("요일 반복은 하나 이상의 요일을 선택해야 합니다.", "Select at least one day for a weekly repeat."),
+        ("반복 규칙이 올바르지 않습니다.", "The repeat rule is not valid."),
+        ("반복 규칙에 허용된 요일이 없습니다.", "The repeat rule has no allowed days."),
+        ("반복 안 함", "Does not repeat"),
+        ("예약은 10분, 30분, 60분 중 하나로만 미룰 수 있습니다.", "A schedule can be postponed only by 10, 30, or 60 minutes."),
+        ("활성 상태의 완전 종료, 최대 절전, 절전 예약만 미룰 수 있습니다.", "Only an active full shutdown, hibernation, or sleep schedule can be postponed."),
+        ("예약을 10분 미뤘습니다. 새 시각: ", "Postponed the schedule by 10 minutes. New time: "),
+        ("예약을 30분 미뤘습니다. 새 시각: ", "Postponed the schedule by 30 minutes. New time: "),
+        ("예약을 60분 미뤘습니다. 새 시각: ", "Postponed the schedule by 60 minutes. New time: "),
+        ("반복 예약의 다음 회차를 만들었습니다. 다음 시각: ", "Created the next occurrence of the repeating schedule. Next time: "),
+        ("반복 예약의 다음 회차를 만들지 못했습니다. 다음 로그인 시 다시 시도합니다.", "Could not create the next occurrence of the repeating schedule. It will be retried at the next sign-in."),
+        ("반복 예약의 다음 회차를 만들었지만 Windows 작업 등록에 실패했습니다. 다음 로그인 시 자동으로 다시 등록합니다.", "Created the next occurrence of the repeating schedule, but its Windows tasks could not be registered. They will be registered again automatically at the next sign-in."),
+        ("일시 중지된 예약을 다시 켰습니다.", "Paused schedules have been resumed."),
+        ("다른 예약과 겹쳐 다시 켜지 못한 예약이 있습니다. 예약 목록에서 확인하세요.", "A schedule could not be resumed because it conflicts with another schedule. Check the schedule list."),
+        ("지난 반복 예약을 다음 회차로 옮겨 다시 켰습니다. 다음 시각: ", "Moved the past repeating schedule to its next occurrence and resumed it. Next time: "),
+        ("지난 예약은 다시 켤 수 없습니다.", "A past schedule cannot be turned back on."),
+        ("이미 실행이 시작됐거나 끝난 예약은 변경할 수 없습니다.", "A schedule that has already started or finished cannot be changed."),
+        ("이미 실행이 시작됐거나 끝난 예약은 건너뛸 수 없습니다.", "A schedule that has already started or finished cannot be skipped.")
     ];
 
     private static readonly (string Korean, string English)[] PhraseTranslations =

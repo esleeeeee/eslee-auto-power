@@ -51,6 +51,15 @@ Helper의 Task 등록은 예약별 기존 앱 작업을 먼저 제거한 뒤 새
 - `StartWhenAvailable=false`, `MultipleInstances=IgnoreNew`, 예약 시각 + 2분 EndBoundary를 함께 적용해 놓친 전원 Task가 나중에 실행되지 않게 한다.
 - Shutdown은 `SeShutdownPrivilege`를 명시적으로 활성화·검증한 뒤 `InitiateShutdownW`를 호출한다. primary는 `SHUTDOWN_POWEROFF | SHUTDOWN_FORCE_SELF | SHUTDOWN_FORCE_OTHERS`, 30초 grace, `Application Maintenance (Planned)` reason을 사용하고 `SHUTDOWN_HYBRID`는 사용하지 않는다. 동시에 30초 뒤 `force-shutdown` SYSTEM fallback을 등록한다. primary 거부 시 schedule은 `PendingPowerTransition`, journal은 `Compensating`으로 남겨 fallback을 보존한다. fallback은 grace 0으로 즉시 요청하고 이미 예약된 종료에만 `SHUTDOWN_GRACE_OVERRIDE`를 제한적으로 재시도한다. fallback까지 거부된 경우에만 Failed이며, 접수된 종료의 완료 여부는 다음 부팅에서 User32 1074와 종료/부팅 이벤트로 확정한다.
 - Shutdown 뒤에 활성 Wake 예약이 있으면 저장 단계와 5분 전 경고에서 S5 상태로는 다시 켤 수 없음을 알린다. 사용자는 다음 Wake가 요구하는 S3/S4 상태로 전환하거나 완전 종료를 명시적으로 계속할 수 있다.
+- 시작된 예약과 끝난 예약은 저장으로 되돌리지 않는다. `PendingPowerTransition` 행은 덮어쓰지 않고, 끝난 행은 다시 Pending(반복 시리즈면 Disabled 포함)으로 만들지 않는다. `execute-power`의 durable 시작 전이는 검증한 예약 시각과 DB 시각이 같을 때만 성공한다. 건너뛰기와 전체 일시 중지도 조건부 전이로 처리한다.
+
+## 반복 예약과 미루기
+
+- 반복 예약은 `RecurrenceRule`(매일·평일·요일 선택 + 기준 시각)과 `SeriesId`를 가진다. 각 회차는 지금처럼 별도의 1회성 예약 행이며, 시리즈마다 살아 있는(Pending 또는 Disabled) 회차는 최대 하나다.
+- 다음 회차는 회차가 실행을 시작할 때(`execute-power`·`execute-power-now`의 durable 시작 commit 직후, `mark-wake`), 건너뛸 때(`skip-schedule`), 그리고 SYSTEM `reconcile`이 살아 있는 회차가 없는 시리즈를 발견할 때 만든다. 존재 확인과 삽입은 한 번의 `BEGIN IMMEDIATE` 트랜잭션이라 여러 프로세스가 동시에 시도해도 하나만 생긴다. 실패는 전원 전환을 막지 않고 `RecurrenceAdvanceFailed` 기록으로 남는다.
+- 작업 등록은 commit 뒤에 기존 예약별 등록 경로로 한다. 등록이 실패해도 DB 행은 남기고, SYSTEM `startup-reconcile`이 미래의 활성 Pending 예약을 모두 다시 등록하면서 복구한다. 일반 권한 앱의 reconcile은 회차를 만들거나 작업을 등록하지 않는다.
+- 살아 있는 회차를 삭제하거나 반복을 해제하면 같은 트랜잭션에서 시리즈의 나머지 행의 반복 규칙을 지워 시리즈를 끝낸다. 회차를 끄면 시리즈가 멈추고, 다시 켤 때 이미 지났거나 1분 안이면 다음 회차로 옮긴다. `resume-all`도 같은 규칙을 따르고 지난 1회성 예약은 그대로 둔다.
+- 5분 전 경고의 미루기(10·30·60분)는 `max(예약 시각, 현재 분 올림) + N분`을 일반 저장 경로(journal → DB → Helper 재등록, 실패 시 롤백)로 저장한다. 기준 시각은 바뀌지 않아 다음 회차는 원래 시각에 생긴다.
 
 ## S3/S4 앱 관리형 1회 자동 로그인
 

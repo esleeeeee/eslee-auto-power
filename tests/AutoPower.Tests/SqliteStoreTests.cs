@@ -147,6 +147,7 @@ public sealed class SqliteStoreTests
         private readonly string _directory;
         private TestDatabase(string directory, SqliteStore store) { _directory = directory; Store = store; }
         public SqliteStore Store { get; }
+        public string DatabasePath => Path.Combine(_directory, "test.db");
         public static async Task<TestDatabase> CreateAsync()
         {
             var directory = Path.Combine(Path.GetTempPath(), "AutoPower.Tests", Guid.NewGuid().ToString("N"));

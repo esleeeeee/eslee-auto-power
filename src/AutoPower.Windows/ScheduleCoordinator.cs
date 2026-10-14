@@ -131,17 +131,76 @@ public sealed class ScheduleCoordinator
 {
     private readonly SqliteStore _store;
     private readonly IPrivilegedHelperClient _helper;
+    private readonly Func<DateTime> _localNow;
 
-    public ScheduleCoordinator(SqliteStore store, IPrivilegedHelperClient helper)
+    public ScheduleCoordinator(SqliteStore store, IPrivilegedHelperClient helper, Func<DateTime>? localNow = null)
     {
         _store = store;
         _helper = helper;
+        _localNow = localNow ?? (() => DateTime.Now);
     }
 
-    public async Task<ValidationResult> SaveAsync(PowerSchedule schedule, CancellationToken cancellationToken = default)
+    public Task<ValidationResult> SaveAsync(PowerSchedule schedule, CancellationToken cancellationToken = default) =>
+        SaveCoreAsync(schedule, null, cancellationToken);
+
+    /// <summary>
+    /// Postpones an enabled Pending shutdown, hibernate or sleep schedule by 10, 30 or 60 minutes from the later
+    /// of its scheduled time and the current minute (rounded up). Uses the regular save path, so the helper
+    /// re-registers the schedule's tasks and a failure rolls the database back. A recurring series keeps its
+    /// anchor time. Returns the new scheduled time.
+    /// </summary>
+    public async Task<DateTime> SnoozeAsync(Guid scheduleId, int minutes, CancellationToken cancellationToken = default)
     {
+        if (!ScheduleTimePolicy.IsSupportedSnooze(minutes))
+        {
+            throw new ArgumentOutOfRangeException(nameof(minutes), minutes, "예약은 10분, 30분, 60분 중 하나로만 미룰 수 있습니다.");
+        }
+
+        var schedule = await _store.GetScheduleAsync(scheduleId, cancellationToken).ConfigureAwait(false)
+                       ?? throw new KeyNotFoundException("예약을 찾을 수 없습니다.");
+        if (!PowerSchedulePolicy.IsPowerTransition(schedule.ActionType) ||
+            !schedule.IsEnabled ||
+            schedule.Status != ScheduleStatus.Pending)
+        {
+            throw new InvalidOperationException("활성 상태의 완전 종료, 최대 절전, 절전 예약만 미룰 수 있습니다.");
+        }
+
+        var snoozed = ScheduleTimePolicy.Snooze(schedule.ScheduledLocalDateTime, _localNow(), minutes);
+        var message = string.Create(CultureInfo.InvariantCulture,
+            $"예약을 {minutes}분 미뤘습니다. 새 시각: {snoozed:yyyy.MM.dd HH:mm}");
+        var validation = await SaveCoreAsync(
+            schedule with { ScheduledLocalDateTime = snoozed },
+            (HistoryEventTypes.Snoozed, ResultKind.Information, message),
+            cancellationToken).ConfigureAwait(false);
+        if (!validation.IsValid)
+        {
+            throw new InvalidOperationException(string.Join(Environment.NewLine, validation.Issues.Select(issue => issue.Message)));
+        }
+
+        return snoozed;
+    }
+
+    /// <summary>Asks the helper to disable every future schedule (helper command <c>pause-all</c>).</summary>
+    public Task PauseAllAsync(CancellationToken cancellationToken = default) =>
+        _helper.RunAsync(["pause-all"], cancellationToken);
+
+    /// <summary>
+    /// Asks the helper to re-enable paused schedules (helper command <c>resume-all</c>). Past-due recurring
+    /// occurrences move to their next occurrence; past-due one-time schedules stay disabled.
+    /// </summary>
+    public Task ResumeAllAsync(CancellationToken cancellationToken = default) =>
+        _helper.RunAsync(["resume-all"], cancellationToken);
+
+    private async Task<ValidationResult> SaveCoreAsync(
+        PowerSchedule schedule,
+        (string EventType, ResultKind Result, string Message)? history,
+        CancellationToken cancellationToken)
+    {
+        schedule = schedule.Recurrence is null
+            ? schedule with { SeriesId = null }
+            : schedule.SeriesId is null ? schedule with { SeriesId = Guid.NewGuid() } : schedule;
         var all = await _store.GetAllSchedulesAsync(cancellationToken).ConfigureAwait(false);
-        var validation = ScheduleValidator.Validate(schedule, DateTime.Now, all);
+        var validation = ScheduleValidator.Validate(schedule, _localNow(), all);
         if (!validation.IsValid)
         {
             return validation;
@@ -153,7 +212,20 @@ public sealed class ScheduleCoordinator
             schedule.Id,
             "DB 저장 및 Windows 작업 등록 진행 중");
         await _store.SavePendingOperationAsync(operation, cancellationToken).ConfigureAwait(false);
-        await _store.SaveScheduleAsync(schedule with { UpdatedAtUtc = DateTimeOffset.UtcNow }, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _store.SaveScheduleAsync(schedule with { UpdatedAtUtc = DateTimeOffset.UtcNow }, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            await _store.SavePendingOperationAsync(operation with
+            {
+                State = PendingOperationState.Failed,
+                UpdatedAtUtc = DateTimeOffset.UtcNow,
+                Detail = "DB 저장 실패"
+            }, CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
 
         try
         {
@@ -164,12 +236,16 @@ public sealed class ScheduleCoordinator
                 UpdatedAtUtc = DateTimeOffset.UtcNow,
                 Detail = "DB와 Windows 작업 등록 완료"
             }, cancellationToken).ConfigureAwait(false);
+            var (eventType, result, message) = history ?? (
+                previous is null ? HistoryEventTypes.ScheduleCreated : HistoryEventTypes.ScheduleUpdated,
+                ResultKind.Success,
+                previous is null ? "예약을 만들었습니다." : "예약을 수정했습니다.");
             await _store.AddHistoryAsync(
                 schedule.Id,
-                previous is null ? "ScheduleCreated" : "ScheduleUpdated",
-                ResultKind.Success,
+                eventType,
+                result,
                 schedule.ScheduledLocalDateTime,
-                previous is null ? "예약을 만들었습니다." : "예약을 수정했습니다.",
+                message,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
             return ValidationResult.Success;
         }
@@ -181,7 +257,14 @@ public sealed class ScheduleCoordinator
             }
             else
             {
-                await _store.SaveScheduleAsync(previous, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await _store.SaveScheduleAsync(previous, cancellationToken).ConfigureAwait(false);
+                }
+                catch (ScheduleStateConflictException)
+                {
+                    // The power transition began meanwhile; its durable state must not be overwritten.
+                }
             }
 
             await _store.SavePendingOperationAsync(operation with
@@ -228,13 +311,24 @@ public sealed class ScheduleCoordinator
     {
         var schedule = await _store.GetScheduleAsync(scheduleId, cancellationToken).ConfigureAwait(false)
                        ?? throw new KeyNotFoundException("예약을 찾을 수 없습니다.");
-        if (enabled && schedule.ScheduledLocalDateTime <= DateTime.Now)
+        var scheduled = schedule.ScheduledLocalDateTime;
+        var now = _localNow();
+        if (enabled && scheduled <= now + RecurrencePolicy.MinimumLeadTime)
         {
-            throw new InvalidOperationException("지난 예약은 다시 켤 수 없습니다.");
+            // A paused recurring occurrence that is past or too close resumes at its next occurrence.
+            if (schedule.Recurrence is { } rule && RecurrencePolicy.IsUsable(rule))
+            {
+                scheduled = RecurrencePolicy.NextOccurrence(rule, now + RecurrencePolicy.MinimumLeadTime);
+            }
+            else if (scheduled <= now)
+            {
+                throw new InvalidOperationException("지난 예약은 다시 켤 수 없습니다.");
+            }
         }
 
         var changed = schedule with
         {
+            ScheduledLocalDateTime = scheduled,
             IsEnabled = enabled,
             Status = enabled ? ScheduleStatus.Pending : ScheduleStatus.Disabled,
             UpdatedAtUtc = DateTimeOffset.UtcNow
@@ -305,6 +399,10 @@ public sealed class IntegrityReconciler
             return;
         }
 
+        // Only the SYSTEM/elevated reconcile advances recurring series. New rows are registered by the loop below,
+        // which re-registers every future enabled Pending schedule and so also heals rows whose registration failed.
+        await new RecurringSeriesService(_store, null, _logger).HealSeriesAsync(cancellationToken).ConfigureAwait(false);
+        all = await _store.GetAllSchedulesAsync(cancellationToken).ConfigureAwait(false);
         var future = all.Where(schedule =>
             schedule.IsEnabled &&
             schedule.Status == ScheduleStatus.Pending &&
