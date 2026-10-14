@@ -13,7 +13,7 @@ internal static class WpfLocalizer
 
     public static void Enable()
     {
-        if (_enabled || !AppText.IsEnglish)
+        if (_enabled)
         {
             return;
         }
@@ -27,7 +27,7 @@ internal static class WpfLocalizer
 
     private static void OnWindowLoaded(object sender, RoutedEventArgs e)
     {
-        if (sender is Window window)
+        if (AppText.IsEnglish && sender is Window window)
         {
             Localize(window);
         }

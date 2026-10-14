@@ -16,12 +16,23 @@ public partial class App : System.Windows.Application
 
     protected override async void OnStartup(StartupEventArgs e)
     {
-        AppText.ApplyCulture();
         WpfLocalizer.Enable();
         base.OnStartup(e);
         try
         {
             await AppServices.InitializeAsync();
+            var language = AppLanguagePreference.System;
+            try
+            {
+                language = AppLanguageSetting.Parse(await AppServices.Store.GetSettingAsync(AppLanguageSetting.Key));
+            }
+            catch
+            {
+                // An unreadable language preference must not prevent startup.
+            }
+
+            AppText.SetLanguage(language);
+            AppText.ApplyCulture();
 #if DEBUG
             if (e.Args.Length == 1 && string.Equals(e.Args[0], "--ui-preview-program", StringComparison.Ordinal))
             {

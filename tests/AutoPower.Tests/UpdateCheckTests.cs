@@ -5,9 +5,21 @@ using AutoPower.Core;
 namespace AutoPower.Tests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed class UpdateCheckTests
 {
     private static readonly Version Current = new(1, 0, 6);
+    private AppLanguagePreference _previousLanguage;
+
+    [TestInitialize]
+    public void InitializeLanguage()
+    {
+        _previousLanguage = AppText.Preference;
+        AppText.SetLanguage(AppLanguagePreference.Korean);
+    }
+
+    [TestCleanup]
+    public void RestoreLanguage() => AppText.SetLanguage(_previousLanguage);
 
     [TestMethod]
     [DataRow("v1.0.7", UpdateCheckStatus.UpdateAvailable)]
@@ -88,25 +100,95 @@ public sealed class UpdateCheckTests
     }
 
     [TestMethod]
-    public void KoreanAndEnglishUpdateStringsMatchSelectedBuildLanguage()
+    [DataRow(AppLanguagePreference.Korean)]
+    [DataRow(AppLanguagePreference.English)]
+    public void KoreanAndEnglishUpdateStringsMatchRuntimeLanguage(AppLanguagePreference preference)
     {
+        AppText.SetLanguage(preference);
+        var isEnglish = preference == AppLanguagePreference.English;
         Assert.AreEqual(
-            AppText.IsEnglish ? "You are using the latest version." : "최신 버전을 사용하고 있습니다.",
+            isEnglish ? "You are using the latest version." : "최신 버전을 사용하고 있습니다.",
             AppText.T("최신 버전을 사용하고 있습니다."));
         Assert.AreEqual(
-            AppText.IsEnglish ? "A new version v1.0.7 is available." : "새 버전 v1.0.7을 사용할 수 있습니다.",
+            isEnglish ? "A new version v1.0.7 is available." : "새 버전 v1.0.7을 사용할 수 있습니다.",
             AppText.F("새 버전 v{0}을 사용할 수 있습니다.", "1.0.7"));
         Assert.AreEqual(
-            AppText.IsEnglish
+            isEnglish
                 ? "The update check failed. Check your network connection."
                 : "업데이트 확인에 실패했습니다. 네트워크 연결을 확인하세요.",
             AppText.T("업데이트 확인에 실패했습니다. 네트워크 연결을 확인하세요."));
         Assert.AreEqual(
-            AppText.IsEnglish ? "Check for updates" : "업데이트 확인",
+            isEnglish ? "Check for updates" : "업데이트 확인",
             AppText.T("업데이트 확인"));
         Assert.AreEqual(
-            AppText.IsEnglish ? "Open the release page" : "Release 페이지 열기",
+            isEnglish ? "Open the release page" : "Release 페이지 열기",
             AppText.T("Release 페이지 열기"));
+    }
+
+    [TestMethod]
+    [DataRow(AppLanguagePreference.Korean, "ko", "ko-KR", "확인")]
+    [DataRow(AppLanguagePreference.English, "en", "en-US", "OK")]
+    public void ExplicitLanguageSelectsCultureAndTranslation(
+        AppLanguagePreference preference, string code, string cultureName, string expected)
+    {
+        AppText.SetLanguage(preference);
+
+        Assert.AreEqual(preference, AppText.Preference);
+        Assert.AreEqual(code, AppText.LanguageCode);
+        Assert.AreEqual(preference == AppLanguagePreference.English, AppText.IsEnglish);
+        Assert.AreEqual(cultureName, AppText.Culture.Name);
+        Assert.AreEqual(expected, AppText.T("확인"));
+        Assert.AreEqual("untranslated", AppText.T("untranslated"));
+    }
+
+    [TestMethod]
+    [DataRow(null, AppLanguagePreference.System)]
+    [DataRow("", AppLanguagePreference.System)]
+    [DataRow("unknown", AppLanguagePreference.System)]
+    [DataRow("system", AppLanguagePreference.System)]
+    [DataRow("ko", AppLanguagePreference.Korean)]
+    [DataRow("en", AppLanguagePreference.English)]
+    public void SettingParserFallsBackToSystem(string? value, AppLanguagePreference expected) =>
+        Assert.AreEqual(expected, AppLanguageSetting.Parse(value));
+
+    [TestMethod]
+    [DataRow(AppLanguagePreference.System, "system")]
+    [DataRow(AppLanguagePreference.Korean, "ko")]
+    [DataRow(AppLanguagePreference.English, "en")]
+    public void SettingValuesRoundTrip(AppLanguagePreference preference, string expected)
+    {
+        Assert.AreEqual(expected, AppLanguageSetting.ToSettingValue(preference));
+        Assert.AreEqual(preference, AppLanguageSetting.Parse(expected));
+    }
+
+    [TestMethod]
+    public void SystemLanguageUsesOsUiCultureAndRemainsStableAfterApplyCulture()
+    {
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        var uiCulture = System.Globalization.CultureInfo.CurrentUICulture;
+        var defaultCulture = System.Globalization.CultureInfo.DefaultThreadCurrentCulture;
+        var defaultUiCulture = System.Globalization.CultureInfo.DefaultThreadCurrentUICulture;
+        var expected = System.Globalization.CultureInfo.InstalledUICulture.TwoLetterISOLanguageName == "ko" ? "ko" : "en";
+        try
+        {
+            AppText.SetLanguage(AppLanguagePreference.System);
+            Assert.AreEqual(expected, AppText.LanguageCode);
+
+            AppText.SetLanguage(expected == "ko" ? AppLanguagePreference.English : AppLanguagePreference.Korean);
+            AppText.ApplyCulture();
+            AppText.SetLanguage(AppLanguagePreference.System);
+            Assert.AreEqual(expected, AppText.LanguageCode);
+            AppText.ApplyCulture();
+            AppText.SetLanguage(AppLanguagePreference.System);
+            Assert.AreEqual(expected, AppText.LanguageCode);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = culture;
+            System.Globalization.CultureInfo.CurrentUICulture = uiCulture;
+            System.Globalization.CultureInfo.DefaultThreadCurrentCulture = defaultCulture;
+            System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = defaultUiCulture;
+        }
     }
 
     private static string ReleaseJson(string tag, bool draft = false, bool prerelease = false) =>

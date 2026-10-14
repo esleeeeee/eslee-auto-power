@@ -5,8 +5,21 @@ using AutoPower.Windows;
 namespace AutoPower.Tests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed class TrayQuickShutdownTests
 {
+    private AppLanguagePreference _previousLanguage;
+
+    [TestInitialize]
+    public void InitializeLanguage()
+    {
+        _previousLanguage = AppText.Preference;
+        AppText.SetLanguage(AppLanguagePreference.Korean);
+    }
+
+    [TestCleanup]
+    public void RestoreLanguage() => AppText.SetLanguage(_previousLanguage);
+
     private static readonly bool[] ExpectedBusyStates = [true, false];
     private static readonly bool[] ExpectedBusyStatesForTwoRuns = [true, false, true, false];
     private static readonly TrayMenuCommand[] ExpectedTrayMenuCommands =
@@ -24,10 +37,13 @@ public sealed class TrayQuickShutdownTests
     ];
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task LaterWakeConsequenceIsShownEvenWhenRefreshFails(bool refreshFails)
+    [DataRow(false, AppLanguagePreference.Korean)]
+    [DataRow(true, AppLanguagePreference.Korean)]
+    [DataRow(false, AppLanguagePreference.English)]
+    [DataRow(true, AppLanguagePreference.English)]
+    public async Task LaterWakeConsequenceIsShownEvenWhenRefreshFails(bool refreshFails, AppLanguagePreference preference)
     {
+        AppText.SetLanguage(preference);
         var now = new DateTime(2030, 4, 5, 12, 0, 30);
         var wake = PowerSchedule.Create(now.AddHours(3), PowerActionType.WakeFromSleep);
         var notifications = new List<string>();
@@ -40,7 +56,7 @@ public sealed class TrayQuickShutdownTests
         Assert.AreEqual(TrayQuickShutdownOutcome.Created, await controller.ExecuteAsync(1));
         Assert.AreEqual(1, saves);
         Assert.HasCount(1, notifications);
-        StringAssert.Contains(notifications[0], AppText.IsEnglish ? "scheduled wake" : "자동 시작 예약");
+        StringAssert.Contains(notifications[0], preference == AppLanguagePreference.English ? "scheduled wake" : "자동 시작 예약");
     }
 
     [TestMethod]
@@ -341,24 +357,28 @@ public sealed class TrayQuickShutdownTests
     }
 
     [TestMethod]
-    public void KoreanAndEnglishTrayStringsMatchSelectedBuildLanguage()
+    [DataRow(AppLanguagePreference.Korean)]
+    [DataRow(AppLanguagePreference.English)]
+    public void KoreanAndEnglishTrayStringsMatchRuntimeLanguage(AppLanguagePreference preference)
     {
+        AppText.SetLanguage(preference);
+        var isEnglish = preference == AppLanguagePreference.English;
         Assert.AreEqual(
-            AppText.IsEnglish ? "Shut down in 1 hour" : "1시간 후 완전 종료",
+            isEnglish ? "Shut down in 1 hour" : "1시간 후 완전 종료",
             AppText.T("1시간 후 완전 종료"));
         Assert.AreEqual(
-            AppText.IsEnglish ? "Shut down in 2 hours" : "2시간 후 완전 종료",
+            isEnglish ? "Shut down in 2 hours" : "2시간 후 완전 종료",
             AppText.T("2시간 후 완전 종료"));
 
         var scheduled = new DateTime(2030, 4, 5, 16, 26, 0);
         var localizedTime = scheduled.ToString("t", AppText.Culture);
         Assert.AreEqual(
-            AppText.IsEnglish
+            isEnglish
                 ? $"Shutdown scheduled for {localizedTime}."
                 : $"완전 종료가 {localizedTime}으로 예약되었습니다.",
             AppText.F("완전 종료가 {0:t}으로 예약되었습니다.", scheduled));
         Assert.AreEqual(
-            AppText.IsEnglish
+            isEnglish
                 ? $"Shutdown is scheduled for {localizedTime}. The schedule was saved, but the screen could not be refreshed."
                 : $"완전 종료가 {localizedTime}으로 예약되었습니다. 화면을 새로고치지 못했지만 예약은 정상적으로 저장되었습니다.",
             AppText.F(

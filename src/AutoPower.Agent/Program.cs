@@ -18,6 +18,18 @@ internal static class AgentProgram
         var logger = new TechnicalLogger();
         var store = new SqliteStore(AppPaths.DatabasePath);
         await store.InitializeAsync().ConfigureAwait(false);
+        var language = AppLanguagePreference.System;
+        try
+        {
+            language = AppLanguageSetting.Parse(await store.GetSettingAsync(AppLanguageSetting.Key).ConfigureAwait(false));
+        }
+        catch
+        {
+            // Language preferences must never block follow-up execution.
+        }
+
+        AppText.SetLanguage(language);
+        AppText.ApplyCulture();
         try
         {
             return args[0].ToLowerInvariant() switch
