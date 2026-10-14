@@ -16,6 +16,9 @@ public partial class App : System.Windows.Application
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        // Hardware-rendered WPF windows paint as blank white rectangles when the desktop moves to a
+        // monitorless output (remote session with the monitor off). Software rendering avoids that.
+        System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
         AppText.ApplyCulture();
         WpfLocalizer.Enable();
         base.OnStartup(e);
