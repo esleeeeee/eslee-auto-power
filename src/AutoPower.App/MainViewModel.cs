@@ -206,11 +206,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
                                 (schedule.Status == ScheduleStatus.Disabled && RecurrencePolicy.IsUsable(schedule.Recurrence))))
             .Select(schedule => new ScheduleRow(schedule, allSchedules))
             .OrderBy(row => row.DisplayTime);
-        Schedules.Clear();
-        foreach (var row in schedules)
-        {
-            Schedules.Add(row);
-        }
+        // Update in place: unchanged rows keep their list containers, so a toggle that UI Automation
+        // (or a screen reader) is holding is not swapped for a detached copy on every refresh.
+        ListSync.Apply(Schedules, schedules.ToList(), row => row.Schedule.Id, ScheduleRow.ShowsSameState);
 
         History.Clear();
         var historyItems = (await AppServices.Store.GetHistoryAsync())
@@ -369,6 +367,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
 public sealed record ScheduleRow(PowerSchedule Schedule, IReadOnlyList<PowerSchedule> AllSchedules)
 {
+    /// <summary>True when both rows would display the same state (used to keep list items stable).</summary>
+    public static bool ShowsSameState(ScheduleRow current, ScheduleRow next) =>
+        current.Schedule.Id == next.Schedule.Id &&
+        current.Schedule.UpdatedAtUtc == next.Schedule.UpdatedAtUtc &&
+        current.Schedule.Status == next.Schedule.Status &&
+        current.Schedule.IsEnabled == next.Schedule.IsEnabled &&
+        current.Schedule.ScheduledLocalDateTime == next.Schedule.ScheduledLocalDateTime &&
+        current.DisplayTime == next.DisplayTime;
+
     public ScheduleRow(PowerSchedule schedule)
         : this(schedule, [schedule])
     {
