@@ -232,6 +232,14 @@ public partial class SettingsWindow : ThemedWindow
 
     private void RefreshCredentialUi()
     {
+        if (AppServices.CaptureMode)
+        {
+            // Screenshots use an example account, never the real Windows credential.
+            CredentialStatusText.Text = AppText.F("등록됨: {0}", @"EXAMPLE-PC\user");
+            CredentialUserNameInput.Text = @"EXAMPLE-PC\user";
+            return;
+        }
+
         try
         {
             var credential = AppServices.Credentials.Read();

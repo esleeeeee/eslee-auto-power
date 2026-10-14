@@ -1,18 +1,21 @@
 #if DEBUG
+using System.Drawing.Imaging;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using AutoPower.App.Services;
 using AutoPower.Core;
 using AutoPower.Windows;
+using Microsoft.Data.Sqlite;
 
 namespace AutoPower.App;
 
 /// <summary>
-/// Debug-only screenshot mode (<c>--ui-capture &lt;folder&gt; [light|dark]</c>). It requires an isolated
-/// data root (ESLEE_AUTOPOWER_DATA_ROOT), seeds sample data there, renders every window off screen with
-/// RenderTargetBitmap and exits. No tray icon, pipe, Task Scheduler task or elevated helper is used.
+/// Debug-only screenshot mode (<c>--ui-capture &lt;folder&gt; [light|dark] [ko|en]</c>). It requires an isolated
+/// data root (ESLEE_AUTOPOWER_DATA_ROOT), seeds sample data there, captures every window (title bar included)
+/// off screen with PrintWindow and exits. No tray icon, pipe, Task Scheduler task or elevated helper is used.
 /// </summary>
 internal static class UiCapture
 {
@@ -43,13 +46,12 @@ internal static class UiCapture
         await Task.Delay(1500);
         Save(main, Path.Combine(output, $"main-schedules-{suffix}.png"));
         main.SelectPageForCapture(1);
-        await Task.Delay(400);
+        await Task.Delay(500);
         Save(main, Path.Combine(output, $"main-history-{suffix}.png"));
         main.SelectPageForCapture(2);
-        await Task.Delay(400);
+        await Task.Delay(500);
         Save(main, Path.Combine(output, $"main-compatibility-{suffix}.png"));
         main.SelectPageForCapture(0);
-        ToggleFirstScheduleThroughAutomation(main);
         if (int.TryParse(Environment.GetEnvironmentVariable("ESLEE_AUTOPOWER_CAPTURE_HOLD"), out var holdSeconds) && holdSeconds > 0)
         {
             // Keeps the window open (refreshed like after a save) so external UI Automation can be tried.
@@ -62,12 +64,12 @@ internal static class UiCapture
         var schedules = await AppServices.Store.GetAllSchedulesAsync();
         var capability = PowerCapabilityDetector.Detect();
         var compatibility = await AppServices.Store.GetCompatibilityAsync();
-        var recurring = schedules.First(schedule => schedule.IsRecurring && schedule.Status == ScheduleStatus.Pending);
+        var recurring = schedules.First(schedule => schedule.IsRecurring && schedule.ActionType == PowerActionType.Shutdown);
         var wake = schedules.First(schedule => PowerSchedulePolicy.IsWakeSchedule(schedule.ActionType));
 
-        await CaptureAsync(new ScheduleEditorWindow(recurring, capability, compatibility, schedules), output, $"editor-recurring-{suffix}.png");
-        await CaptureAsync(new ScheduleEditorWindow(wake, capability, compatibility, schedules), output, $"editor-wake-{suffix}.png");
-        await CaptureAsync(new SettingsWindow(), output, $"settings-{suffix}.png");
+        await CaptureAsync(new ScheduleEditorWindow(recurring, capability, compatibility, schedules), output, $"editor-recurring-{suffix}.png", scrollToEnd: true);
+        await CaptureAsync(new ScheduleEditorWindow(wake, capability, compatibility, schedules), output, $"editor-wake-{suffix}.png", scrollToEnd: true);
+        await CaptureAsync(new SettingsWindow(), output, $"settings-{suffix}.png", scrollToEnd: true);
         await CaptureAsync(new WarningWindow(recurring), output, $"warning-{suffix}.png", closeWithoutDecision: true);
         await CaptureAsync(new AboutWindow(), output, $"about-{suffix}.png");
         await CaptureAsync(new WelcomeWindow(), output, $"welcome-{suffix}.png");
@@ -79,55 +81,17 @@ internal static class UiCapture
         app.Shutdown(0);
     }
 
-    /// <summary>Exercises the list toggle the way a screen reader does (UI Automation Toggle pattern).</summary>
-    private static void ToggleFirstScheduleThroughAutomation(MainWindow main)
-    {
-        var toggle = FindDescendant<System.Windows.Controls.CheckBox>(main);
-        if (toggle is null)
-        {
-            AppServices.Logger.Warning("capture.toggle-missing", "no schedule toggle found");
-            return;
-        }
-
-        var peer = new System.Windows.Automation.Peers.CheckBoxAutomationPeer(toggle);
-        ((System.Windows.Automation.Provider.IToggleProvider)peer).Toggle();
-        AppServices.Logger.Information("capture.toggle-invoked", $"isChecked={toggle.IsChecked}");
-    }
-
-    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
-    {
-        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
-        {
-            var child = VisualTreeHelper.GetChild(root, index);
-            if (child is T match)
-            {
-                return match;
-            }
-
-            if (FindDescendant<T>(child) is { } found)
-            {
-                return found;
-            }
-        }
-
-        return null;
-    }
-
-    private static async Task CaptureAsync(Window window, string output, string name, bool closeWithoutDecision = false)
+    private static async Task CaptureAsync(Window window, string output, string name, bool closeWithoutDecision = false, bool scrollToEnd = false)
     {
         window.WindowStartupLocation = WindowStartupLocation.Manual;
-        if (window is ScheduleEditorWindow or SettingsWindow)
-        {
-            // Tall enough to show the whole scrollable form in one image.
-            window.Height = 1700;
-        }
-
         await ShowOffscreenAsync(window);
-        await Task.Delay(700);
+        await Task.Delay(800);
         Save(window, Path.Combine(output, name));
-        if (FindScrollContent(window) is { } form)
+        if (scrollToEnd && FindDescendant<System.Windows.Controls.ScrollViewer>(window) is { } scroller)
         {
-            SaveElement(form, window.Background, Path.Combine(output, Path.GetFileNameWithoutExtension(name) + "-full.png"));
+            scroller.ScrollToEnd();
+            await Task.Delay(500);
+            Save(window, Path.Combine(output, Path.GetFileNameWithoutExtension(name) + "-bottom.png"));
         }
 
         if (closeWithoutDecision && window is WarningWindow warning)
@@ -152,17 +116,17 @@ internal static class UiCapture
         return loaded.Task;
     }
 
-    private static FrameworkElement? FindScrollContent(DependencyObject root)
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
     {
         for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
         {
             var child = VisualTreeHelper.GetChild(root, index);
-            if (child is System.Windows.Controls.ScrollViewer { Content: FrameworkElement content })
+            if (child is T match)
             {
-                return content;
+                return match;
             }
 
-            if (FindScrollContent(child) is { } found)
+            if (FindDescendant<T>(child) is { } found)
             {
                 return found;
             }
@@ -171,30 +135,28 @@ internal static class UiCapture
         return null;
     }
 
+    /// <summary>Captures the whole window, title bar included, cropped to the visible frame.</summary>
     private static void Save(Window window, string path)
     {
         window.UpdateLayout();
-        SaveElement((FrameworkElement)window.Content, window.Background, path);
-    }
-
-    private static void SaveElement(FrameworkElement content, System.Windows.Media.Brush background, string path)
-    {
-        var dpi = VisualTreeHelper.GetDpi(content);
-        var width = Math.Max(1, (int)Math.Ceiling(content.ActualWidth * dpi.DpiScaleX));
-        var height = Math.Max(1, (int)Math.Ceiling(content.ActualHeight * dpi.DpiScaleY));
-        var bitmap = new RenderTargetBitmap(width, height, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
-        var backdrop = new DrawingVisual();
-        using (var context = backdrop.RenderOpen())
+        var handle = new WindowInteropHelper(window).Handle;
+        GetWindowRect(handle, out var bounds);
+        if (DwmGetWindowAttribute(handle, DwmExtendedFrameBounds, out var frame, Marshal.SizeOf<Rect32>()) != 0)
         {
-            context.DrawRectangle(background, null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
+            frame = bounds;
         }
 
-        bitmap.Render(backdrop);
-        bitmap.Render(content);
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(bitmap));
-        using var stream = File.Create(path);
-        encoder.Save(stream);
+        using var bitmap = new System.Drawing.Bitmap(bounds.Right - bounds.Left, bounds.Bottom - bounds.Top, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (var graphics = System.Drawing.Graphics.FromImage(bitmap))
+        {
+            var hdc = graphics.GetHdc();
+            PrintWindow(handle, hdc, PrintRenderFullContent);
+            graphics.ReleaseHdc(hdc);
+        }
+
+        var crop = new System.Drawing.Rectangle(frame.Left - bounds.Left, frame.Top - bounds.Top, frame.Right - frame.Left, frame.Bottom - frame.Top);
+        using var cropped = bitmap.Clone(crop, bitmap.PixelFormat);
+        cropped.Save(path, ImageFormat.Png);
     }
 
     private static async Task SeedAsync()
@@ -208,21 +170,19 @@ internal static class UiCapture
             return;
         }
 
-        var today = DateTime.Today;
+        var english = AppText.IsEnglish;
+        var now = DateTime.Now;
         var nightly = PowerSchedule.Create(
-            today.AddHours(23).AddMinutes(30),
+            now.Date.AddHours(23).AddMinutes(30),
             PowerActionType.Shutdown,
-            name: AppText.IsEnglish ? "Shut down after work" : "퇴근 후 종료",
+            name: english ? "Shut down after work" : "퇴근 후 종료",
             recurrence: RecurrenceRule.CreateWeekdays(new TimeSpan(23, 30, 0)));
-        if (nightly.ScheduledLocalDateTime <= DateTime.Now.AddMinutes(5))
-        {
-            nightly = nightly with { ScheduledLocalDateTime = RecurrencePolicy.FirstOccurrence(nightly.Recurrence!, DateTime.Now.AddMinutes(10), DateTime.Now) };
-        }
+        nightly = nightly with { ScheduledLocalDateTime = RecurrencePolicy.FirstOccurrence(nightly.Recurrence!, nightly.ScheduledLocalDateTime, now) };
 
         var wakeId = Guid.NewGuid();
         var wake = new PowerSchedule(
             wakeId,
-            today.AddDays(1).AddHours(7),
+            now.Date.AddDays(1).AddHours(7),
             PowerActionType.WakeFromHibernate,
             true,
             true,
@@ -230,27 +190,80 @@ internal static class UiCapture
             DateTimeOffset.UtcNow,
             ScheduleStatus.Pending,
             [
-                new FollowUpProgram(Guid.NewGuid(), wakeId, @"C:\Program Files\Example\backup.exe", 0, null, null, false, 0),
-                new FollowUpProgram(Guid.NewGuid(), wakeId, @"C:\Program Files\Example\sync.exe", 5, null, null, true, 1)
+                new FollowUpProgram(Guid.NewGuid(), wakeId, @"C:\Program Files\Example\Backup.exe", 0, null, null, false, 0),
+                new FollowUpProgram(Guid.NewGuid(), wakeId, @"C:\Program Files\Example\Sync.exe", 5, null, null, true, 1)
             ])
         {
-            Name = AppText.IsEnglish ? "Morning backup" : "아침 백업"
+            Name = english ? "Morning backup" : "아침 백업"
         };
-        var sleep = PowerSchedule.Create(today.AddDays(2).AddHours(1), PowerActionType.Sleep) with { IsEnabled = false, Status = ScheduleStatus.Disabled };
-        var hibernate = PowerSchedule.Create(today.AddDays(3).AddHours(13).AddMinutes(15), PowerActionType.Hibernate,
-            recurrence: RecurrenceRule.CreateWeekly(RecurrenceDays.Saturday | RecurrenceDays.Sunday, new TimeSpan(13, 15, 0)));
-        hibernate = hibernate with { ScheduledLocalDateTime = RecurrencePolicy.FirstOccurrence(hibernate.Recurrence!, hibernate.ScheduledLocalDateTime, DateTime.Now) };
+        var weekend = PowerSchedule.Create(now.Date.AddDays(1).AddHours(13).AddMinutes(30), PowerActionType.Hibernate,
+            name: english ? "Weekend lunch break" : "주말 점심 최대 절전",
+            recurrence: RecurrenceRule.CreateWeekly(RecurrenceDays.Saturday | RecurrenceDays.Sunday, new TimeSpan(13, 30, 0)));
+        weekend = weekend with { ScheduledLocalDateTime = RecurrencePolicy.FirstOccurrence(weekend.Recurrence!, weekend.ScheduledLocalDateTime, now) };
+        var paused = PowerSchedule.Create(now.Date.AddDays(3).AddHours(1), PowerActionType.Sleep) with
+        {
+            IsEnabled = false,
+            Status = ScheduleStatus.Disabled
+        };
 
-        foreach (var schedule in new[] { nightly, wake, sleep, hibernate })
+        foreach (var schedule in new[] { nightly, wake, weekend, paused })
         {
             await store.SaveScheduleAsync(schedule);
         }
 
-        await store.AddHistoryAsync(nightly.Id, "ScheduleCreated", ResultKind.Information, nightly.ScheduledLocalDateTime, "예약을 만들었습니다.");
-        await store.AddHistoryAsync(nightly.Id, "PowerTransitionCompleted", ResultKind.Success, nightly.ScheduledLocalDateTime.AddDays(-1), "완전 종료가 완료되었습니다.");
-        await store.AddHistoryAsync(wake.Id, "WakeResumed", ResultKind.Success, wake.ScheduledLocalDateTime.AddDays(-1), "예약 시각에 최대 절전에서 복귀했습니다.");
-        await store.AddHistoryAsync(wake.Id, "FollowUpProgram", ResultKind.Failure, wake.ScheduledLocalDateTime.AddDays(-1), "후속 프로그램을 시작하지 못했습니다.");
-        await store.AddHistoryAsync(null, "ScheduleMissed", ResultKind.Warning, today.AddDays(-2).AddHours(22), "PC가 꺼져 있어 예약을 놓쳤습니다.");
+        await store.SaveCompatibilityAsync(new CompatibilityResult(CompatibilityCapabilities.S3Wake, CapabilityStatus.NeedsPhysicalTest, DateTimeOffset.UtcNow,
+            "이 PC는 S3 절전을 지원합니다. Task Scheduler WakeToRun 실제 테스트가 필요합니다."));
+        await store.SaveCompatibilityAsync(new CompatibilityResult(CompatibilityCapabilities.S4Wake, CapabilityStatus.Confirmed, DateTimeOffset.UtcNow,
+            "실제 테스트 성공이 확인된 경로입니다."));
+
+        var yesterday = now.Date.AddDays(-1);
+        var history = new (Guid? Schedule, string Type, ResultKind Result, DateTime At, string Message)[]
+        {
+            (nightly.Id, "ScheduleCreated", ResultKind.Success, now.AddDays(-3).AddHours(-2), "예약을 만들었습니다."),
+            (wake.Id, "ScheduleCreated", ResultKind.Success, now.AddDays(-3).AddHours(-1), "예약을 만들었습니다."),
+            (nightly.Id, "Snoozed", ResultKind.Information, yesterday.AddHours(23).AddMinutes(26),
+                $"예약을 30분 미뤘습니다. 새 시각: {yesterday.AddDays(1):yyyy.MM.dd} 00:00"),
+            (nightly.Id, "PowerTransitionRecovered", ResultKind.Success, yesterday.AddDays(1).AddMinutes(1),
+                "완전 종료 전원 전환과 복귀 증거를 확인해 완료 처리했습니다."),
+            (nightly.Id, "RecurrenceAdvanced", ResultKind.Information, yesterday.AddDays(1),
+                $"반복 예약의 다음 회차를 만들었습니다. 다음 시각: {nightly.ScheduledLocalDateTime:yyyy.MM.dd HH:mm}"),
+            (wake.Id, "WakeResumed", ResultKind.Success, now.Date.AddHours(7), "S4 최대 절전 상태에서 Windows 사용자 세션으로 복귀했습니다."),
+            (wake.Id, "ScheduleSkipped", ResultKind.Skipped, now.AddDays(-2), "사용자가 이번 예약을 건너뛰었습니다.")
+        };
+        await using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = AppPaths.DatabasePath }.ToString());
+        await connection.OpenAsync();
+        foreach (var item in history.OrderBy(item => item.At))
+        {
+            var id = await store.AddHistoryAsync(item.Schedule, item.Type, item.Result, item.At, item.Message);
+            await using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE ExecutionHistory SET ActualTimeUtc = $at WHERE Id = $id;";
+            command.Parameters.AddWithValue("$at", new DateTimeOffset(item.At).ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture));
+            command.Parameters.AddWithValue("$id", id);
+            await command.ExecuteNonQueryAsync();
+        }
     }
+
+    private const int DwmExtendedFrameBounds = 9;
+    private const uint PrintRenderFullContent = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect32
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr handle, out Rect32 rect);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PrintWindow(IntPtr handle, IntPtr hdc, uint flags);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr handle, int attribute, out Rect32 value, int size);
 }
 #endif

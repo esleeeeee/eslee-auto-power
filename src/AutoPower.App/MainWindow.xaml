@@ -561,7 +561,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="구분" Binding="{Binding EventText}" Width="150" />
+                                <DataGridTextColumn Header="구분" Binding="{Binding EventText}" Width="190" />
                                 <DataGridTemplateColumn Header="내용" Width="*">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
