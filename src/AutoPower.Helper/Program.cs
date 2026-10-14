@@ -17,6 +17,18 @@ internal static class HelperProgram
         var logger = new TechnicalLogger();
         var store = new SqliteStore(AppPaths.DatabasePath);
         await store.InitializeAsync().ConfigureAwait(false);
+        var language = AppLanguagePreference.System;
+        try
+        {
+            language = AppLanguageSetting.Parse(await store.GetSettingAsync(AppLanguageSetting.Key).ConfigureAwait(false));
+        }
+        catch
+        {
+            // Language preferences must never block a power operation.
+        }
+
+        AppText.SetLanguage(language);
+        AppText.ApplyCulture();
         var layout = InstallationLayout.FromBaseDirectory(AppContext.BaseDirectory);
         var registrar = new TaskSchedulerService(layout, logger);
         var userCredentials = new CredentialManager();

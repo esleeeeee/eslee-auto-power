@@ -2,15 +2,53 @@ using System.Globalization;
 
 namespace AutoPower.Core;
 
+public enum AppLanguagePreference
+{
+    System,
+    Korean,
+    English
+}
+
+public static class AppLanguageSetting
+{
+    public const string Key = "ui-language";
+    public const string SystemValue = "system";
+    public const string KoreanValue = "ko";
+    public const string EnglishValue = "en";
+
+    public static AppLanguagePreference Parse(string? value) => value switch
+    {
+        KoreanValue => AppLanguagePreference.Korean,
+        EnglishValue => AppLanguagePreference.English,
+        _ => AppLanguagePreference.System
+    };
+
+    public static string ToSettingValue(AppLanguagePreference preference) => preference switch
+    {
+        AppLanguagePreference.Korean => KoreanValue,
+        AppLanguagePreference.English => EnglishValue,
+        _ => SystemValue
+    };
+}
+
 public static class AppText
 {
-#if APP_LANGUAGE_EN
-    public const bool IsEnglish = true;
-    public const string LanguageCode = "en";
-#else
-    public const bool IsEnglish = false;
-    public const string LanguageCode = "ko";
-#endif
+    // Capture the OS UI language once; ApplyCulture must not change System resolution.
+    private static readonly bool SystemIsKorean = string.Equals(
+        CultureInfo.InstalledUICulture.TwoLetterISOLanguageName, "ko", StringComparison.OrdinalIgnoreCase);
+    private static int _preference = (int)AppLanguagePreference.System;
+
+    public static AppLanguagePreference Preference => (AppLanguagePreference)Volatile.Read(ref _preference);
+    public static bool IsEnglish => Preference switch
+    {
+        AppLanguagePreference.Korean => false,
+        AppLanguagePreference.English => true,
+        _ => !SystemIsKorean
+    };
+    public static string LanguageCode => IsEnglish ? "en" : "ko";
+
+    public static void SetLanguage(AppLanguagePreference preference) =>
+        Volatile.Write(ref _preference, (int)preference);
 
     public static CultureInfo Culture => CultureInfo.GetCultureInfo(IsEnglish ? "en-US" : "ko-KR");
 
@@ -24,7 +62,11 @@ public static class AppText
 
     public static string T(string text)
     {
-#if APP_LANGUAGE_EN
+        if (!IsEnglish)
+        {
+            return text;
+        }
+
         foreach (var (korean, english) in ExactTranslations)
         {
             if (string.Equals(text, korean, StringComparison.Ordinal))
@@ -48,15 +90,11 @@ public static class AppText
         }
 
         return result;
-#else
-        return text;
-#endif
     }
 
     public static string F(string format, params object?[] args) =>
         string.Format(Culture, T(format), args);
 
-#if APP_LANGUAGE_EN
     private static readonly (string Korean, string English)[] ExactTranslations =
     [
         ("eslee Auto Power 정보", "About eslee Auto Power"),
@@ -343,5 +381,4 @@ public static class AppText
         ("미실행 — 예약 시각에 전원 작업이 실행된 증거가 없습니다.", "Missed — there is no evidence that the power task ran at the scheduled time."),
         ("사용자 선택으로 ", "User selected ")
     ];
-#endif
 }

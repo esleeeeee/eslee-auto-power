@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using AutoPower.Core;
 using AutoPower.Windows;
 
@@ -16,8 +17,8 @@ public sealed class FollowUpProgramRunnerTests
         var results = await runner.RunAsync(schedule, DateTimeOffset.Now);
         Assert.AreEqual(2, results.Count(result => result.Result == ResultKind.Success));
         Assert.HasCount(2, process.Started);
-        CollectionAssert.Contains(process.Started, @"C:\Apps\a.exe");
-        CollectionAssert.Contains(process.Started, @"C:\Apps\b.exe");
+        CollectionAssert.Contains(process.Started.ToArray(), @"C:\Apps\a.exe");
+        CollectionAssert.Contains(process.Started.ToArray(), @"C:\Apps\b.exe");
     }
 
     [TestMethod]
@@ -45,7 +46,19 @@ public sealed class FollowUpProgramRunnerTests
         Assert.AreEqual(1, first.Count(result => result.Result == ResultKind.Success));
         Assert.AreEqual(2, second.Count(result => result.Result == ResultKind.Skipped));
         Assert.HasCount(1, process.Started);
-        Assert.AreEqual(@"C:\Apps\good.exe", process.Started[0]);
+        Assert.AreEqual(@"C:\Apps\good.exe", process.Started.Single());
+    }
+
+    [TestMethod]
+    public void FakeProcessesRecordsEveryConcurrentStart()
+    {
+        var process = new FakeProcesses();
+        var schedule = Schedule(@"C:\Apps\a.exe");
+        var program = schedule.FollowUpPrograms.Single();
+
+        Parallel.For(0, 10_000, _ => process.Start(program));
+
+        Assert.HasCount(10_000, process.Started);
     }
 
     private static PowerSchedule Schedule(params string[] paths)
@@ -60,12 +73,13 @@ public sealed class FollowUpProgramRunnerTests
     {
         public string? RunningPath { get; init; }
         public string? FailingPath { get; init; }
-        public List<string> Started { get; } = [];
+        // RunOneAsync continuations can invoke Start concurrently through Task.WhenAll.
+        public ConcurrentQueue<string> Started { get; } = new();
         public bool IsRunning(string executablePath) => string.Equals(executablePath, RunningPath, StringComparison.OrdinalIgnoreCase);
         public void Start(FollowUpProgram program)
         {
             if (string.Equals(program.ExecutablePath, FailingPath, StringComparison.OrdinalIgnoreCase)) throw new IOException("injected");
-            Started.Add(program.ExecutablePath);
+            Started.Enqueue(program.ExecutablePath);
         }
     }
 }
