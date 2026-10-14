@@ -18,6 +18,7 @@
 
 ### Changed
 
+- 새 앱 아이콘(전원 + 타이머)
 - 모든 창을 eslee 시리즈 공통 Windows 11 Fluent 디자인으로 개편: 라이트/다크 테마와 다크 제목 표시줄, 둥근 카드, Segoe Fluent Icons, 테마가 적용된 자체 대화상자
 - 주 창을 왼쪽 탐색(예약·기록·호환성) + 다음 동작 카드 + 예약 목록-상세 구조로 변경. 목록 항목마다 켜기/끄기 토글과 우클릭 메뉴 제공, Ctrl+N(새 예약)·F5(새로 고침)·Delete·Enter 키 지원
 - 예약 편집 창을 동작 카드, 이름, 날짜·시간과 빠른 설정, 반복, 자동 시작 옵션, 후속 프로그램 목록(수정·제거) 구성으로 변경. 후속 프로그램은 EXE 끌어다 놓기 지원
@@ -34,6 +35,7 @@
 - 완전 종료 경고에서 '자동 시작 유지'를 골랐다가 준비에 실패하면 건너뛴 완전 종료가 복구되지 않던 문제(건너뛴 예약을 조건부로 되돌리는 도우미 명령 추가)
 - 실행이 시작된 예약을 삭제하면 완전 종료 대체 작업이 지워질 수 있던 문제(실행 중인 예약은 삭제 거부)
 - 놓친 예약 정리가 막 실행을 시작한 예약을 덮어쓸 수 있던 경쟁 상태(조건부 상태 전환 사용)
+- 화면을 새로 고칠 때마다 목록 항목을 다시 만들어 화면 낭독기·UI Automation이 누른 토글이 무시되던 문제(목록을 제자리에서 갱신)
 
 ## 2.0.0 - English summary
 
@@ -53,6 +55,7 @@
 
 ### Changed
 
+- New app icon (power + timer)
 - Every window redesigned in the eslee series Windows 11 Fluent style: light/dark themes with a matching title bar, rounded cards, Segoe Fluent Icons and themed dialogs
 - Main window reorganized into navigation (Schedules, History, Compatibility), a next-action card and a schedule list with details; each item has an on/off toggle and a context menu; Ctrl+N, F5, Delete and Enter shortcuts
 - Schedule editor reorganized into action cards, name, date/time with quick buttons, repeat, wake options and an editable follow-up program list; EXE files can be dropped onto the program editor
@@ -69,6 +72,7 @@
 - Choosing "keep wake" in the shutdown warning could lose the skipped shutdown if preparation failed; a helper command now restores a skipped schedule conditionally
 - Deleting a schedule whose run had started could remove the shutdown fallback task; in-flight schedules can no longer be deleted
 - Missed-run cleanup could overwrite a schedule that had just started running; it now uses a conditional transition
+- Every refresh rebuilt the list items, so a toggle pressed through a screen reader or UI Automation was ignored; the list now updates in place
 
 ## 1.0.7 - 2026-08-10
 
