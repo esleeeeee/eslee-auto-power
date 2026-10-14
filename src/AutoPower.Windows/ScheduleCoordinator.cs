@@ -180,6 +180,15 @@ public sealed class ScheduleCoordinator
         return snoozed;
     }
 
+    /// <summary>
+    /// Undoes a skip through the helper command <c>restore-skipped --schedule {id}</c>: the Skipped schedule
+    /// becomes enabled Pending again (only while it is at least one minute in the future), its tasks are
+    /// re-registered and a series occurrence created by the skip is removed. Throws when the schedule changed
+    /// meanwhile or is too close; calling it again after success is harmless.
+    /// </summary>
+    public Task RestoreSkippedAsync(Guid scheduleId, CancellationToken cancellationToken = default) =>
+        _helper.RunAsync(["restore-skipped", "--schedule", scheduleId.ToString("D")], cancellationToken);
+
     /// <summary>Asks the helper to disable every future schedule (helper command <c>pause-all</c>).</summary>
     public Task PauseAllAsync(CancellationToken cancellationToken = default) =>
         _helper.RunAsync(["pause-all"], cancellationToken);
@@ -281,6 +290,12 @@ public sealed class ScheduleCoordinator
     {
         var schedule = await _store.GetScheduleAsync(scheduleId, cancellationToken).ConfigureAwait(false)
                        ?? throw new KeyNotFoundException("삭제할 예약을 찾을 수 없습니다.");
+        if (schedule.Status == ScheduleStatus.PendingPowerTransition)
+        {
+            // Removing the tasks of an in-flight run would also remove its shutdown fallback.
+            throw new ScheduleStateConflictException(SqliteStore.InFlightDeleteMessage);
+        }
+
         var operation = NewOperation(PendingOperationType.RemoveSchedule, scheduleId, "Windows 작업과 DB 예약 삭제 진행 중");
         await _store.SavePendingOperationAsync(operation, cancellationToken).ConfigureAwait(false);
         await _helper.RunAsync(["remove-schedule", "--schedule", scheduleId.ToString("D")], cancellationToken).ConfigureAwait(false);
@@ -389,7 +404,18 @@ public sealed class IntegrityReconciler
         foreach (var missed in all.Where(schedule =>
                      schedule.Status == ScheduleStatus.Pending && schedule.ScheduledLocalDateTime < DateTime.Now - TimeSpan.FromMinutes(2)))
         {
-            await _store.UpdateScheduleStateAsync(missed.Id, false, ScheduleStatus.Missed, cancellationToken).ConfigureAwait(false);
+            // Conditional: the row may have gone in flight (or been edited) since it was read above.
+            if (!await _store.TryTransitionScheduleAsync(
+                    missed.Id,
+                    [ScheduleStatus.Pending],
+                    false,
+                    ScheduleStatus.Missed,
+                    missed.ScheduledLocalDateTime,
+                    cancellationToken: cancellationToken).ConfigureAwait(false))
+            {
+                continue;
+            }
+
             await _store.AddHistoryAsync(missed.Id, "ScheduleMissed", ResultKind.Warning, missed.ScheduledLocalDateTime,
                 "미실행 — 예약 시각에 실행 가능한 상태가 아니었음", cancellationToken: cancellationToken).ConfigureAwait(false);
         }

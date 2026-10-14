@@ -7,6 +7,7 @@ public static class HistoryEventTypes
     public const string ScheduleUpdated = "ScheduleUpdated";
     public const string ScheduleDeleted = "ScheduleDeleted";
     public const string ScheduleSkipped = "ScheduleSkipped";
+    public const string ScheduleRestored = "ScheduleRestored";
     public const string ScheduleMissed = "ScheduleMissed";
     public const string PowerTransitionFailed = "PowerTransitionFailed";
     public const string PowerTransitionResultUnknown = "PowerTransitionResultUnknown";

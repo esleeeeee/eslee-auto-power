@@ -230,11 +230,13 @@ public sealed class SqliteStore
     /// series already has a live (Pending or Disabled) row or a later occurrence. The check and the insert run
     /// in one immediate write transaction, so concurrent callers (execute-power, wake handling,
     /// startup-reconcile) create at most one row. Returns the new row, or null when nothing was created.
+    /// With <paramref name="createDisabled"/> the new row is Disabled, which keeps a paused series paused.
     /// </summary>
     public async Task<PowerSchedule?> TryAdvanceSeriesAsync(
         Guid occurrenceId,
         DateTime nowLocal,
         DateTimeOffset? nowUtc = null,
+        bool createDisabled = false,
         CancellationToken cancellationToken = default)
     {
         var created = nowUtc ?? DateTimeOffset.UtcNow;
@@ -268,6 +270,10 @@ public sealed class SqliteStore
             var next = source.CreateNextOccurrence(
                 RecurrencePolicy.NextOccurrenceAfter(rule, source.ScheduledLocalDateTime, nowLocal),
                 created);
+            if (createDisabled)
+            {
+                next = next with { IsEnabled = false, Status = ScheduleStatus.Disabled };
+            }
             await using (var insert = connection.CreateCommand())
             {
                 insert.Transaction = transaction;
@@ -395,38 +401,163 @@ public sealed class SqliteStore
     /// Deletes a schedule. Deleting an occurrence of a recurring series ends that series in the same
     /// transaction so that reconciliation never recreates it from an older occurrence.
     /// </summary>
-    public async Task DeleteScheduleAsync(Guid id, CancellationToken cancellationToken = default)
+    /// <remarks>
+    /// An in-flight (PendingPowerTransition) row is never deleted; that throws
+    /// <see cref="ScheduleStateConflictException"/>. Other live (Pending or Disabled) occurrences of the ended
+    /// series are deleted too, and their IDs are returned so the caller can make sure their tasks are gone.
+    /// </remarks>
+    public async Task<IReadOnlyList<Guid>> DeleteScheduleAsync(Guid id, CancellationToken cancellationToken = default)
     {
         await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = connection.BeginTransaction(deferred: false);
         try
         {
-            Guid? seriesId = null;
-            await using (var series = connection.CreateCommand())
+            var schedule = (await ReadSchedulesAsync(
+                    connection, transaction, "WHERE s.Id=$id", ("$id", id.ToString("D")), cancellationToken)
+                .ConfigureAwait(false)).SingleOrDefault();
+            if (schedule is null)
             {
-                series.Transaction = transaction;
-                series.CommandText = "SELECT SeriesId FROM Schedules WHERE Id=$id;";
-                series.Parameters.AddWithValue("$id", id.ToString("D"));
-                if (await series.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is string value)
-                {
-                    seriesId = Guid.Parse(value);
-                }
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return [];
             }
 
-            await using (var command = connection.CreateCommand())
+            if (schedule.Status == ScheduleStatus.PendingPowerTransition)
             {
+                throw new ScheduleStateConflictException(InFlightDeleteMessage);
+            }
+
+            var removed = new List<Guid>();
+            if (schedule.SeriesId is Guid seriesId)
+            {
+                removed.AddRange((await ReadSchedulesAsync(
+                        connection, transaction, "WHERE s.SeriesId=$series", ("$series", seriesId.ToString("D")), cancellationToken)
+                    .ConfigureAwait(false))
+                    .Where(item => item.Id != id && item.Status is ScheduleStatus.Pending or ScheduleStatus.Disabled)
+                    .Select(item => item.Id));
+            }
+
+            foreach (var target in removed.Prepend(id))
+            {
+                await using var command = connection.CreateCommand();
                 command.Transaction = transaction;
                 command.CommandText = "DELETE FROM Schedules WHERE Id=$id;";
-                command.Parameters.AddWithValue("$id", id.ToString("D"));
+                command.Parameters.AddWithValue("$id", target.ToString("D"));
                 await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            if (seriesId is Guid endedSeries)
+            if (schedule.SeriesId is Guid endedSeries)
             {
                 await EndSeriesAsync(connection, transaction, endedSeries, id, cancellationToken).ConfigureAwait(false);
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return removed;
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    public const string InFlightDeleteMessage = "실행이 시작된 예약은 삭제할 수 없습니다. 실행 결과가 확정된 뒤 다시 시도하세요.";
+
+    /// <summary>
+    /// Turns a Skipped schedule back into an enabled Pending one inside one write transaction, for example
+    /// when the action that caused the skip failed. The schedule must still be at least the minimum lead time
+    /// in the future. Later live occurrences of the same series (normally the one the skip advanced to) are
+    /// deleted so the series keeps exactly one live row; their IDs are returned so their tasks can be removed.
+    /// Calling it again on an already restored (enabled Pending) row succeeds without changes.
+    /// </summary>
+    public async Task<RestoreSkippedResult> RestoreSkippedAsync(
+        Guid id,
+        DateTime nowLocal,
+        CancellationToken cancellationToken = default)
+    {
+        var updated = DateTimeOffset.UtcNow;
+        await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = connection.BeginTransaction(deferred: false);
+        try
+        {
+            var schedule = (await ReadSchedulesAsync(
+                    connection, transaction, "WHERE s.Id=$id", ("$id", id.ToString("D")), cancellationToken)
+                .ConfigureAwait(false)).SingleOrDefault()
+                ?? throw new KeyNotFoundException("예약을 찾을 수 없습니다.");
+            var alreadyRestored = schedule is { Status: ScheduleStatus.Pending, IsEnabled: true };
+            if (!alreadyRestored && schedule.Status != ScheduleStatus.Skipped)
+            {
+                throw new ScheduleStateConflictException("건너뛴 예약만 다시 켤 수 있습니다. 예약 상태가 이미 바뀌었습니다.");
+            }
+
+            if (schedule.ScheduledLocalDateTime <= DateTime.SpecifyKind(nowLocal, DateTimeKind.Unspecified) + RecurrencePolicy.MinimumLeadTime)
+            {
+                throw new ScheduleStateConflictException("예약 시각이 지났거나 너무 가까워 건너뛴 예약을 다시 켤 수 없습니다.");
+            }
+
+            if (alreadyRestored)
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return new RestoreSkippedResult(schedule, [], true);
+            }
+
+            var removed = new List<Guid>();
+            if (schedule.SeriesId is Guid seriesId)
+            {
+                removed.AddRange((await ReadSchedulesAsync(
+                        connection, transaction, "WHERE s.SeriesId=$series", ("$series", seriesId.ToString("D")), cancellationToken)
+                    .ConfigureAwait(false))
+                    .Where(item => item.Id != id &&
+                                   item.Status is ScheduleStatus.Pending or ScheduleStatus.Disabled &&
+                                   item.ScheduledLocalDateTime > schedule.ScheduledLocalDateTime)
+                    .Select(item => item.Id));
+            }
+
+            foreach (var target in removed)
+            {
+                await using var delete = connection.CreateCommand();
+                delete.Transaction = transaction;
+                delete.CommandText = "DELETE FROM Schedules WHERE Id=$id;";
+                delete.Parameters.AddWithValue("$id", target.ToString("D"));
+                await delete.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await using (var update = connection.CreateCommand())
+            {
+                update.Transaction = transaction;
+                update.CommandText = """
+                    UPDATE Schedules SET IsEnabled=1, Status=$pending, UpdatedAtUtc=$updated
+                    WHERE Id=$id AND Status=$skipped;
+                    """;
+                update.Parameters.AddWithValue("$pending", (int)ScheduleStatus.Pending);
+                update.Parameters.AddWithValue("$skipped", (int)ScheduleStatus.Skipped);
+                update.Parameters.AddWithValue("$updated", Utc(updated));
+                update.Parameters.AddWithValue("$id", id.ToString("D"));
+                await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await using (var history = connection.CreateCommand())
+            {
+                history.Transaction = transaction;
+                history.CommandText = """
+                    INSERT INTO ExecutionHistory(
+                        ScheduleId, EventType, Result, PlannedLocalTime,
+                        ActualTimeUtc, UserReadableMessage, ErrorCode)
+                    VALUES($scheduleId, $eventType, $result, $planned, $actual, $message, NULL);
+                    """;
+                history.Parameters.AddWithValue("$scheduleId", id.ToString("D"));
+                history.Parameters.AddWithValue("$eventType", HistoryEventTypes.ScheduleRestored);
+                history.Parameters.AddWithValue("$result", (int)ResultKind.Information);
+                history.Parameters.AddWithValue("$planned", Local(schedule.ScheduledLocalDateTime));
+                history.Parameters.AddWithValue("$actual", Utc(updated));
+                history.Parameters.AddWithValue("$message", "건너뛴 예약을 다시 켰습니다.");
+                await history.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return new RestoreSkippedResult(
+                schedule with { IsEnabled = true, Status = ScheduleStatus.Pending, UpdatedAtUtc = updated },
+                removed,
+                false);
         }
         catch
         {
@@ -1175,3 +1306,8 @@ public sealed class SqliteStore
     private static DateTimeOffset ParseUtc(string value) =>
         DateTimeOffset.ParseExact(value, "O", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal).ToUniversalTime();
 }
+
+public sealed record RestoreSkippedResult(
+    PowerSchedule Schedule,
+    IReadOnlyList<Guid> RemovedOccurrenceIds,
+    bool AlreadyRestored);
