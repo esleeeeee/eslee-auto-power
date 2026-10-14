@@ -34,6 +34,7 @@ internal static class HelperProgram
             registrar,
             shutdown,
             logger);
+        var recurringSeries = new RecurringSeriesService(store, registrar, logger);
 
         try
         {
@@ -151,6 +152,7 @@ internal static class HelperProgram
                     await store.UpdateScheduleStateAsync(id, false, ScheduleStatus.Completed).ConfigureAwait(false);
                     await store.AddHistoryAsync(id, "WakeTask", ResultKind.Information, schedule.ScheduledLocalDateTime,
                         $"{PowerSchedulePolicy.WakeStateName(schedule.ActionType)} 예약 시각에 WakeToRun 작업이 실행되었습니다.").ConfigureAwait(false);
+                    await recurringSeries.AdvanceAfterOccurrenceAsync(id).ConfigureAwait(false);
                     return 0;
                 }
                 case "prepare-wake":
@@ -260,6 +262,8 @@ internal static class HelperProgram
                         try
                         {
                             registrar.ConsumePowerTask(id);
+                            // Best effort and exception-safe: a series advance never blocks the power transition.
+                            await recurringSeries.AdvanceAfterOccurrenceAsync(id).ConfigureAwait(false);
                             await RecordShutdownWakeConflictAsync(store, schedule).ConfigureAwait(false);
                             await shutdownWorkflow.StartPrimaryAsync(schedule, operation).ConfigureAwait(false);
                         }
@@ -288,6 +292,7 @@ internal static class HelperProgram
                     try
                     {
                         registrar.ConsumePowerTask(id);
+                        await recurringSeries.AdvanceAfterOccurrenceAsync(id).ConfigureAwait(false);
                         await EnsureNextWakeAsync(store, registrar, id).ConfigureAwait(false);
 
                         await new PowerActionExecutor().ExecuteAsync(schedule.ActionType).ConfigureAwait(false);
@@ -331,6 +336,7 @@ internal static class HelperProgram
                         try
                         {
                             registrar.Remove(id);
+                            await recurringSeries.AdvanceAfterOccurrenceAsync(id).ConfigureAwait(false);
                             await RecordShutdownWakeConflictAsync(store, schedule).ConfigureAwait(false);
                             await shutdownWorkflow.StartPrimaryAsync(schedule, operation).ConfigureAwait(false);
                         }
@@ -359,6 +365,7 @@ internal static class HelperProgram
                     try
                     {
                         registrar.Remove(id);
+                        await recurringSeries.AdvanceAfterOccurrenceAsync(id).ConfigureAwait(false);
                         await EnsureNextWakeAsync(store, registrar, id).ConfigureAwait(false);
 
                         await new PowerActionExecutor().ExecuteAsync(schedule.ActionType).ConfigureAwait(false);
@@ -397,10 +404,21 @@ internal static class HelperProgram
                 {
                     var id = RequiredScheduleId(args);
                     var schedule = await RequiredScheduleAsync(store, id).ConfigureAwait(false);
+                    // Conditional transition first: a schedule whose power transition already began keeps its
+                    // durable state and its shutdown fallback task.
+                    if (!await store.TryTransitionScheduleAsync(
+                            id,
+                            [ScheduleStatus.Pending, ScheduleStatus.Disabled],
+                            false,
+                            ScheduleStatus.Skipped).ConfigureAwait(false))
+                    {
+                        throw new InvalidOperationException("이미 실행이 시작됐거나 끝난 예약은 건너뛸 수 없습니다.");
+                    }
+
                     registrar.Remove(id);
-                    await store.UpdateScheduleStateAsync(id, false, ScheduleStatus.Skipped).ConfigureAwait(false);
                     await store.AddHistoryAsync(id, "ScheduleSkipped", ResultKind.Skipped, schedule.ScheduledLocalDateTime,
                         "사용자가 이번 예약을 건너뛰었습니다.").ConfigureAwait(false);
+                    await recurringSeries.AdvanceAfterOccurrenceAsync(id).ConfigureAwait(false);
                     return 0;
                 }
                 case "run-sleep-wake-test":
@@ -512,12 +530,7 @@ internal static class HelperProgram
                 }
                 case "pause-all" when args.Length == 1:
                 {
-                    var schedules = await store.GetAllSchedulesAsync().ConfigureAwait(false);
-                    foreach (var schedule in schedules.Where(item => item.IsEnabled && item.Status == ScheduleStatus.Pending && item.ScheduledLocalDateTime > DateTime.Now))
-                    {
-                        registrar.Remove(schedule.Id);
-                        await store.UpdateScheduleStateAsync(schedule.Id, false, ScheduleStatus.Disabled).ConfigureAwait(false);
-                    }
+                    await new ScheduleBulkOperations(store, registrar).PauseAllAsync().ConfigureAwait(false);
 
                     var active = autologon.CurrentJournal;
                     if (active is not null && active.State is not AutologonJournalState.Cleaned)
@@ -528,6 +541,11 @@ internal static class HelperProgram
                     await RestoreResumeSignInAsync(resumeSignIn, store, null,
                         "전체 예약 중지와 함께 S3/S4 1회 자동 로그인 설정을 복원했습니다.").ConfigureAwait(false);
 
+                    return 0;
+                }
+                case "resume-all" when args.Length == 1:
+                {
+                    await new ScheduleBulkOperations(store, registrar).ResumeAllAsync().ConfigureAwait(false);
                     return 0;
                 }
                 case "cleanup-app":
