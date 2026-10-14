@@ -286,9 +286,15 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task RefreshAttentionAsync(IReadOnlyList<ExecutionHistory> history)
     {
         var stored = await AppServices.Store.GetSettingAsync(AttentionAcknowledgedKey);
-        DateTimeOffset? acknowledged = DateTimeOffset.TryParse(stored, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
-            ? parsed
-            : null;
+        DateTimeOffset acknowledged;
+        if (!DateTimeOffset.TryParse(stored, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out acknowledged))
+        {
+            // First run of this version (fresh install or upgrade): only problems recorded from now on
+            // are announced, so years of older history do not greet the user as a warning.
+            acknowledged = DateTimeOffset.UtcNow;
+            await AppServices.Store.SetSettingAsync(AttentionAcknowledgedKey, acknowledged.ToString("O", CultureInfo.InvariantCulture));
+        }
+
         var summary = ScheduleExtras.Attention(history, acknowledged);
         _attentionLatestUtc = summary.LatestUtc;
         AttentionText = summary.Text;

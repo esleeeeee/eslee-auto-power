@@ -159,6 +159,7 @@ internal static class UiCapture
         var store = AppServices.Store;
         await store.SetSettingAsync("welcome-shown", "1");
         await store.SetSettingAsync("removed-power-features-cleanup-v3", "1");
+        await store.SetSettingAsync(MainViewModel.AttentionAcknowledgedKey, DateTimeOffset.UtcNow.AddDays(-7).ToString("O", System.Globalization.CultureInfo.InvariantCulture));
         if ((await store.GetAllSchedulesAsync()).Count > 0)
         {
             return;
