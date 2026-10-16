@@ -241,18 +241,7 @@ See [Privacy](PRIVACY.md) and [Security](SECURITY.md) for details.
 
 ## How it works
 
-```mermaid
-flowchart TD
-    A[Save a schedule] --> B[Register tasks in the Windows Task Scheduler]
-    B --> C{Action}
-    C -->|Shut down, hibernate, sleep| D[Warning 5 minutes ahead]
-    D --> E[Run the power action at the scheduled time]
-    C -->|Scheduled wake| F[Put the PC in S3/S4]
-    F --> G[Windows wakes the PC at the scheduled time]
-    G --> H[Run programs once the desktop is ready]
-    E --> I[Confirm the result from Windows events and record it]
-    H --> I
-```
+![Workflow: a saved schedule is registered in Task Scheduler; shutdown and sleep actions warn 5 minutes ahead, a scheduled wake has Windows wake the PC and start programs, and both paths record the result](docs/images/workflow-en.png)
 
 1. Saving a schedule makes the elevated helper register app-only tasks in the Windows Task Scheduler (`\eslee\AutoPower\`).
 2. Before calling the Windows power API, the app records the pending action in its database. After the PC comes back, it checks Windows event logs to settle the result as completed, failed or missed.
